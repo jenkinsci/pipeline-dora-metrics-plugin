@@ -79,6 +79,26 @@ public class DoraDashboardActionTest {
         assertEquals(200, page.getWebResponse().getStatusCode());
     }
 
+    /**
+     * The KPI cards are rendered server-side, and dora-dashboard.js refreshes them
+     * by id when the date range changes. Without these ids the cards silently kept
+     * showing the initial period while the trend charts updated (issue #3), so the
+     * ids are part of the contract between the view and the script.
+     */
+    @Test
+    public void kpiCardsExposeIdsForDateRangeRefresh() throws Exception {
+        HtmlPage page = noJsClient().goTo("dora-metrics");
+        String html = page.getWebResponse().getContentAsString();
+        for (String slug : new String[] {"df", "lt", "mttr", "cfr"}) {
+            assertTrue("KPI value element id=kpi-" + slug + "-value must exist so the "
+                            + "date-range handler can refresh it",
+                    html.contains("id=\"kpi-" + slug + "-value\""));
+            assertTrue("KPI band element id=kpi-" + slug + "-band must exist so the "
+                            + "date-range handler can refresh it",
+                    html.contains("id=\"kpi-" + slug + "-band\""));
+        }
+    }
+
     @Test
     public void tablesHaveSmallClass() throws Exception {
         HtmlPage page = noJsClient().goTo("dora-metrics");
