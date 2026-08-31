@@ -10,6 +10,8 @@ on:
 
 permissions:
   security-events: write
+  contents: read # For actions/checkout in the reusable workflow
+  actions: read # For github/codeql-action/upload-sarif
 
 jobs:
   security-scan:
