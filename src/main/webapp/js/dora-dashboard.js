@@ -49,8 +49,36 @@ function getBaseUrl() {
     return root;
 }
 
+// The four KPI cards are rendered server-side on page load, so changing the date
+// range used to leave them showing the initial period while the trend charts below
+// refreshed. Re-fetch them from the same overview endpoint the page was built from.
+function loadOverview(days) {
+    var base = getBaseUrl();
+    fetch(base + '/dora-api/overview?days=' + days)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            updateKpiCard('df', data.deployment_frequency);
+            updateKpiCard('lt', data.lead_time);
+            updateKpiCard('mttr', data.mttr);
+            updateKpiCard('cfr', data.change_failure_rate);
+        })
+        .catch(function(e) { console.log('Overview load error:', e); });
+}
+
+function updateKpiCard(slug, metric) {
+    if (!metric) return;
+    var value = document.getElementById('kpi-' + slug + '-value');
+    if (value) value.textContent = metric.value;
+    var band = document.getElementById('kpi-' + slug + '-band');
+    if (band) {
+        band.textContent = metric.band;
+        band.style.backgroundColor = metric.color;
+    }
+}
+
 function loadCharts(days) {
     var base = getBaseUrl();
+    loadOverview(days);
     fetch(base + '/dora-api/trends?days=' + days)
         .then(function(r) { return r.json(); })
         .then(function(data) {

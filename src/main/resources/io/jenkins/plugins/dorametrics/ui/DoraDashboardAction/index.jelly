@@ -30,29 +30,29 @@
             <div class="dora-cards">
                 <j:set var="df" value="${it.deploymentFrequency}"/>
                 <l:card title="Deployment Frequency">
-                    <div class="dora-card-value">${df.displayValue}</div>
-                    <span class="dora-card-band" style="background-color: ${df.band.color}">${df.band.label}</span>
+                    <div class="dora-card-value" id="kpi-df-value">${df.displayValue}</div>
+                    <span class="dora-card-band" id="kpi-df-band" style="background-color: ${df.band.color}">${df.band.label}</span>
                     <canvas class="dora-sparkline" id="spark-df"></canvas>
                 </l:card>
 
                 <j:set var="leadTime" value="${it.leadTime}"/>
                 <l:card title="Lead Time for Changes">
-                    <div class="dora-card-value">${leadTime.displayValue}</div>
-                    <span class="dora-card-band" style="background-color: ${leadTime.band.color}">${leadTime.band.label}</span>
+                    <div class="dora-card-value" id="kpi-lt-value">${leadTime.displayValue}</div>
+                    <span class="dora-card-band" id="kpi-lt-band" style="background-color: ${leadTime.band.color}">${leadTime.band.label}</span>
                     <canvas class="dora-sparkline" id="spark-lt"></canvas>
                 </l:card>
 
                 <j:set var="mttr" value="${it.mttr}"/>
                 <l:card title="Mean Time to Restore">
-                    <div class="dora-card-value">${mttr.displayValue}</div>
-                    <span class="dora-card-band" style="background-color: ${mttr.band.color}">${mttr.band.label}</span>
+                    <div class="dora-card-value" id="kpi-mttr-value">${mttr.displayValue}</div>
+                    <span class="dora-card-band" id="kpi-mttr-band" style="background-color: ${mttr.band.color}">${mttr.band.label}</span>
                     <canvas class="dora-sparkline" id="spark-mttr"></canvas>
                 </l:card>
 
                 <j:set var="cfr" value="${it.changeFailureRate}"/>
                 <l:card title="Change Failure Rate">
-                    <div class="dora-card-value">${cfr.displayValue}</div>
-                    <span class="dora-card-band" style="background-color: ${cfr.band.color}">${cfr.band.label}</span>
+                    <div class="dora-card-value" id="kpi-cfr-value">${cfr.displayValue}</div>
+                    <span class="dora-card-band" id="kpi-cfr-band" style="background-color: ${cfr.band.color}">${cfr.band.label}</span>
                     <canvas class="dora-sparkline" id="spark-cfr"></canvas>
                 </l:card>
             </div>
