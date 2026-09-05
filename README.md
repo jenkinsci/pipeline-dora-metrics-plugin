@@ -92,7 +92,7 @@ Navigate to **Manage Jenkins > System** and scroll to the **Pipeline DORA Metric
 **Job Filtering:**
 - **Production Job Pattern:** Regex to match production jobs (e.g., `production/.*` or `.*-prod.*`). Default: `.*` (all jobs)
 - **Excluded Job Pattern:** Regex to exclude jobs (e.g., `.*-test.*|.*sandbox.*`)
-- **Ignore Disabled Pipelines:** Leave pipelines that are currently disabled in Jenkins out of DORA metrics, rankings and exports, including builds recorded while they were still active. Off by default. Their history is kept, so re-enabling a pipeline or unchecking the option brings its numbers back.
+- **Ignore Disabled Pipelines:** Leave pipelines that are currently disabled in Jenkins out of DORA metrics, rankings and exports, including builds recorded while they were still active. Off by default. Their history is kept, so re-enabling a pipeline or unchecking the option brings its numbers back. A pipeline counts as disabled when Jenkins reports it as not buildable: disabled by hand, or a multibranch branch or pull request job kept after its branch was deleted.
 - **Production Folders:** Comma-separated Jenkins folder paths (e.g., `production,deploy/prod`)
 - **Production Branch Pattern:** Regex for branches that count as production (e.g., `main|master|release/.*`)
 

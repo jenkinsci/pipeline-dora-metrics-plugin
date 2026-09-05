@@ -5,6 +5,7 @@ import hudson.security.ACL;
 import hudson.security.ACLContext;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import jenkins.model.Jenkins;
+import jenkins.model.ParameterizedJobMixIn.ParameterizedJob;
 
 import java.util.Collections;
 import java.util.HashSet;
@@ -24,9 +25,14 @@ public final class DisabledPipelines {
     }
 
     /**
-     * Full names of recorded jobs that exist in Jenkins and are disabled, or an
-     * empty set when the option is off. A job that no longer exists in Jenkins is
-     * not disabled and stays included.
+     * Full names of recorded jobs that Jenkins currently reports as not buildable,
+     * or an empty set when the option is off. That covers a job disabled through
+     * its own Disable action and a multibranch branch or pull request job kept
+     * after its branch went away, which Jenkins marks dead and stops building.
+     * The check is limited to {@link ParameterizedJob}s (Pipeline and freestyle
+     * jobs), the only job types with a disabled state, so a job type that can
+     * never be built, such as an externally monitored job, stays included. So
+     * does a job that no longer exists in Jenkins.
      */
     public static Set<String> names(DoraGlobalConfiguration config, MetricsStore store) {
         if (config == null || !config.isIgnoreDisabledPipelines() || store == null) {
@@ -42,7 +48,7 @@ public final class DisabledPipelines {
         try (ACLContext ignored = ACL.as2(ACL.SYSTEM2)) {
             for (String name : store.getAllJobNames()) {
                 Job<?, ?> job = jenkins.getItemByFullName(name, Job.class);
-                if (job != null && !job.isBuildable()) {
+                if (job instanceof ParameterizedJob && !job.isBuildable()) {
                     disabled.add(name);
                 }
             }

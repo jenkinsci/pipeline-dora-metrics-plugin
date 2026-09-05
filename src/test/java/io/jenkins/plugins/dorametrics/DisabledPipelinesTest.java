@@ -4,6 +4,7 @@ import hudson.model.FreeStyleProject;
 import io.jenkins.plugins.dorametrics.store.MetricsExporter;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
+import org.jenkinsci.plugins.workflow.job.WorkflowJobProperty;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -59,6 +60,25 @@ public class DisabledPipelinesTest {
 
         config.setIgnoreDisabledPipelines(true);
         assertEquals(Set.of("disabled", "pipeline-disabled"), DisabledPipelines.names(config, store));
+    }
+
+    @Test
+    public void deadBranchJobIsExcludedToo() throws Exception {
+        // A multibranch branch or PR job whose branch went away is not disabled by flag: the branch
+        // plugin vetoes it through a WorkflowJobProperty, the same way BranchJobProperty does.
+        WorkflowJob dead = j.createProject(WorkflowJob.class, "dead-branch");
+        dead.addProperty(new NotBuildable());
+        store.insertBuild("dead-branch", 1, System.currentTimeMillis(), 1000, "SUCCESS", "SCM", "main");
+
+        config.setIgnoreDisabledPipelines(true);
+        assertEquals(Set.of("disabled", "dead-branch"), DisabledPipelines.names(config, store));
+    }
+
+    private static final class NotBuildable extends WorkflowJobProperty {
+        @Override
+        public Boolean isBuildable() {
+            return false;
+        }
     }
 
     @Test

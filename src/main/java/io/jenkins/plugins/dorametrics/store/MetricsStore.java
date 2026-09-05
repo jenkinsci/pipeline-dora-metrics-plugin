@@ -438,7 +438,8 @@ public class MetricsStore {
     /**
      * SQL fragment excluding the given job names from a query, with one bind
      * variable per name so the names are never interpolated. Empty when there is
-     * nothing to exclude.
+     * nothing to exclude. The bundled SQLite accepts 250000 bind variables per
+     * statement, far more than any realistic number of disabled jobs.
      */
     private static String notIn(String column, Set<String> excludedJobs) {
         if (excludedJobs == null || excludedJobs.isEmpty()) return "";
