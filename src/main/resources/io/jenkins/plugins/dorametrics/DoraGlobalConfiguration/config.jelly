@@ -23,6 +23,10 @@
                  description="If unchecked, only production branches count for DORA metrics.">
             <f:checkbox default="true"/>
         </f:entry>
+        <f:entry title="Ignore Disabled Pipelines" field="ignoreDisabledPipelines"
+                 description="If checked, pipelines that are currently disabled in Jenkins are left out of DORA metrics, rankings and exports, including builds recorded while they were still active. Their history is kept and counts again once they are re-enabled or this is unchecked.">
+            <f:checkbox default="false"/>
+        </f:entry>
 
         <div class="jenkins-section__title">General</div>
         <f:entry title="Data Retention (days)" field="retentionDays"

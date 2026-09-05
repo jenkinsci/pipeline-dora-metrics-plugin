@@ -1,5 +1,6 @@
 package io.jenkins.plugins.dorametrics.store;
 
+import io.jenkins.plugins.dorametrics.DisabledPipelines;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.export.ExportStorageConfig;
 import io.jenkins.plugins.dorametrics.store.MetricsStore.BuildRecord;
@@ -31,7 +32,7 @@ public class MetricsExporter {
             long now = System.currentTimeMillis();
             long dayAgo = now - 86400_000;
 
-            List<BuildRecord> builds = store.getAllBuilds(dayAgo, now);
+            List<BuildRecord> builds = store.getAllBuilds(dayAgo, now, DisabledPipelines.names(config, store));
             if (builds.isEmpty()) {
                 LOGGER.fine("No builds in last 24h, skipping export");
                 return;
@@ -61,7 +62,8 @@ public class MetricsExporter {
         MetricsStore store = MetricsStore.getInstance();
         long now = System.currentTimeMillis();
         long fromMs = now - ((long) days * 86400_000);
-        List<BuildRecord> builds = store.getAllBuilds(fromMs, now);
+        List<BuildRecord> builds = store.getAllBuilds(fromMs, now,
+                DisabledPipelines.names(DoraGlobalConfiguration.get(), store));
         return buildSnapshot(builds, store, now);
     }
 

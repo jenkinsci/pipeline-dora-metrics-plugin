@@ -1,5 +1,7 @@
 package io.jenkins.plugins.dorametrics.dora;
 
+import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
+import hudson.model.FreeStyleProject;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import org.junit.Before;
 import org.junit.Rule;
@@ -135,5 +137,39 @@ public class DoraCalculatorTest {
         // Only count prod jobs
         DoraCalculator.DoraMetric cfr = calc.changeFailureRate(now - 1000, now + 1000, "prod/.*");
         assertEquals(0.0, cfr.rawValue, 0.1); // No failures in prod
+    }
+
+    @Test
+    public void ignoresDisabledPipelinesWhenConfigured() throws Exception {
+        DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
+        j.createFreeStyleProject("cfr-active");
+        FreeStyleProject disabled = j.createFreeStyleProject("cfr-disabled");
+        disabled.disable();
+
+        long now = System.currentTimeMillis();
+        long day = 86400000L;
+        for (int i = 0; i < 3; i++) {
+            store.insertBuild("cfr-active", i + 1, now - i * day, 1000, "SUCCESS", "SCM", "main");
+        }
+        // Three failures, then a recovery a day later: contributes failures and a restore time.
+        for (int i = 0; i < 3; i++) {
+            store.insertBuild("cfr-disabled", i + 1, now - (4 - i) * day, 1000, "FAILURE", "SCM", "main");
+        }
+        store.insertBuild("cfr-disabled", 4, now, 1000, "SUCCESS", "SCM", "main");
+
+        long from = now - 30 * day;
+        long to = now + 1000;
+
+        config.setIgnoreDisabledPipelines(false);
+        DoraCalculator everything = new DoraCalculator();
+        assertEquals(42.857, everything.changeFailureRate(from, to, ".*").rawValue, 0.01);
+        assertTrue(everything.meanTimeToRestore(from, to, ".*").rawValue > 0);
+
+        config.setIgnoreDisabledPipelines(true);
+        DoraCalculator filtered = new DoraCalculator();
+        assertEquals(0.0, filtered.changeFailureRate(from, to, ".*").rawValue, 0.001);
+        assertEquals(0.0, filtered.meanTimeToRestore(from, to, ".*").rawValue, 0.001);
+        assertEquals(3.0 / 30, filtered.deploymentFrequency(from, to, ".*").rawValue, 0.01);
+        config.setIgnoreDisabledPipelines(false); // reset
     }
 }

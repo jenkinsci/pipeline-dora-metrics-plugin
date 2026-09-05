@@ -3,6 +3,7 @@ package io.jenkins.plugins.dorametrics.ui;
 import hudson.Extension;
 import hudson.model.Action;
 import hudson.model.Job;
+import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.dora.DoraCalculator;
 import io.jenkins.plugins.dorametrics.dora.DoraCalculator.DoraMetric;
 import io.jenkins.plugins.dorametrics.rankings.PipelineRanker.RankedStage;
@@ -42,6 +43,14 @@ public class JobMetricsAction implements Action {
 
     public String getJobName() { return job.getFullName(); }
 
+    /**
+     * The job's own page always shows its own numbers, even when the job is
+     * disabled and left out of the global metrics.
+     */
+    private DoraCalculator perJobCalculator() {
+        return new DoraCalculator(MetricsStore.getInstance(), DoraGlobalConfiguration.get(), java.util.Collections.emptySet());
+    }
+
     private String jobPattern() {
         return "^" + java.util.regex.Pattern.quote(job.getFullName()) + "$";
     }
@@ -55,19 +64,19 @@ public class JobMetricsAction implements Action {
     }
 
     public DoraMetric getDeploymentFrequency() {
-        return new DoraCalculator().deploymentFrequency(thirtyDaysAgo(), now(), jobPattern());
+        return perJobCalculator().deploymentFrequency(thirtyDaysAgo(), now(), jobPattern());
     }
 
     public DoraMetric getLeadTime() {
-        return new DoraCalculator().leadTimeForChanges(thirtyDaysAgo(), now(), jobPattern());
+        return perJobCalculator().leadTimeForChanges(thirtyDaysAgo(), now(), jobPattern());
     }
 
     public DoraMetric getMttr() {
-        return new DoraCalculator().meanTimeToRestore(thirtyDaysAgo(), now(), jobPattern());
+        return perJobCalculator().meanTimeToRestore(thirtyDaysAgo(), now(), jobPattern());
     }
 
     public DoraMetric getChangeFailureRate() {
-        return new DoraCalculator().changeFailureRate(thirtyDaysAgo(), now(), jobPattern());
+        return perJobCalculator().changeFailureRate(thirtyDaysAgo(), now(), jobPattern());
     }
 
     public List<RankedStage> getSlowestStages() {

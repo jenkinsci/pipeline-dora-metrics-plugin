@@ -1,5 +1,7 @@
 package io.jenkins.plugins.dorametrics.rankings;
 
+import io.jenkins.plugins.dorametrics.DisabledPipelines;
+import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import io.jenkins.plugins.dorametrics.store.MetricsStore.BuildRecord;
 import io.jenkins.plugins.dorametrics.util.DurationFormatter;
@@ -8,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -16,18 +19,26 @@ import java.util.stream.Collectors;
 public class PipelineRanker {
 
     private final MetricsStore store;
+    // Jobs left out of every ranking, resolved once per ranker.
+    private final Set<String> excludedJobs;
 
     public PipelineRanker() {
-        this.store = MetricsStore.getInstance();
+        this(MetricsStore.getInstance());
     }
 
     /** Constructor for testing. */
     public PipelineRanker(MetricsStore store) {
+        this(store, DisabledPipelines.names(DoraGlobalConfiguration.get(), store));
+    }
+
+    /** Constructor with an explicit set of jobs to leave out. */
+    public PipelineRanker(MetricsStore store, Set<String> excludedJobs) {
         this.store = store;
+        this.excludedJobs = excludedJobs;
     }
 
     public List<RankedPipeline> slowestPipelines(long fromMs, long toMs, int limit) {
-        List<MetricsStore.JobStats> stats = store.getJobStats(fromMs, toMs, limit, "avg_dur DESC");
+        List<MetricsStore.JobStats> stats = store.getJobStats(fromMs, toMs, limit, "avg_dur DESC", excludedJobs);
         List<RankedPipeline> ranked = new ArrayList<>();
         for (MetricsStore.JobStats s : stats) {
             ranked.add(new RankedPipeline(s.jobName, s.avgDurationMs,
@@ -37,7 +48,7 @@ public class PipelineRanker {
     }
 
     public List<RankedPipeline> mostFailingPipelines(long fromMs, long toMs, int limit) {
-        List<MetricsStore.JobStats> stats = store.getJobStats(fromMs, toMs, limit * 2, "failures DESC");
+        List<MetricsStore.JobStats> stats = store.getJobStats(fromMs, toMs, limit * 2, "failures DESC", excludedJobs);
         List<RankedPipeline> ranked = new ArrayList<>();
         for (MetricsStore.JobStats s : stats) {
             double failureRate = s.buildCount > 0 ? (double) s.failureCount / s.buildCount * 100 : 0;
@@ -98,7 +109,7 @@ public class PipelineRanker {
     }
 
     public List<RankedStage> slowestStages(long fromMs, long toMs, int limit) {
-        List<MetricsStore.StageStats> stats = store.getStageStats(fromMs, toMs, limit, "avg_dur DESC");
+        List<MetricsStore.StageStats> stats = store.getStageStats(fromMs, toMs, limit, "avg_dur DESC", excludedJobs);
         List<RankedStage> ranked = new ArrayList<>();
         for (MetricsStore.StageStats s : stats) {
             ranked.add(new RankedStage(s.stageName, s.avgDurationMs,
@@ -108,7 +119,7 @@ public class PipelineRanker {
     }
 
     public List<RankedStage> mostFailingStages(long fromMs, long toMs, int limit) {
-        List<MetricsStore.StageStats> stats = store.getStageStats(fromMs, toMs, limit * 2, "failures DESC");
+        List<MetricsStore.StageStats> stats = store.getStageStats(fromMs, toMs, limit * 2, "failures DESC", excludedJobs);
         List<RankedStage> ranked = new ArrayList<>();
         for (MetricsStore.StageStats s : stats) {
             double failureRate = s.totalRuns > 0 ? (double) s.failureCount / s.totalRuns * 100 : 0;
@@ -120,7 +131,7 @@ public class PipelineRanker {
     }
 
     private Map<String, List<BuildRecord>> groupByJob(long fromMs, long toMs) {
-        return store.getAllBuilds(fromMs, toMs).stream()
+        return store.getAllBuilds(fromMs, toMs, excludedJobs).stream()
                 .collect(Collectors.groupingBy(b -> b.jobName));
     }
 
