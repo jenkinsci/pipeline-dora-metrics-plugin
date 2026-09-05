@@ -28,6 +28,19 @@ public class DoraGlobalConfigurationTest {
         assertEquals("main|master", config.getProductionBranchPattern());
         assertEquals(365, config.getRetentionDays());
         assertEquals(10, config.getDashboardTopN());
+        assertFalse(config.isIgnoreDisabledPipelines());
+    }
+
+    @Test
+    public void ignoreDisabledPipelinesRoundTrip() throws Exception {
+        // Submit the real Manage Jenkins > System form, so the jelly field and configure() are both exercised.
+        config.setIgnoreDisabledPipelines(true);
+        j.configRoundtrip();
+        assertTrue(DoraGlobalConfiguration.get().isIgnoreDisabledPipelines());
+
+        config.setIgnoreDisabledPipelines(false);
+        j.configRoundtrip();
+        assertFalse(DoraGlobalConfiguration.get().isIgnoreDisabledPipelines());
     }
 
     @Test

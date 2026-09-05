@@ -1,5 +1,6 @@
 package io.jenkins.plugins.dorametrics.dora;
 
+import io.jenkins.plugins.dorametrics.DisabledPipelines;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import io.jenkins.plugins.dorametrics.store.MetricsStore.BuildRecord;
@@ -9,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -34,23 +36,30 @@ public class DoraCalculator {
 
     private final MetricsStore store;
     private final DoraGlobalConfiguration config;
+    // Jobs left out of every calculation, resolved once per calculator.
+    private final Set<String> excludedJobs;
 
     public DoraCalculator() {
-        this.store = MetricsStore.getInstance();
-        this.config = DoraGlobalConfiguration.get();
+        this(MetricsStore.getInstance(), DoraGlobalConfiguration.get());
     }
 
     /** Constructor for testing with injected dependencies. */
     public DoraCalculator(MetricsStore store, DoraGlobalConfiguration config) {
+        this(store, config, DisabledPipelines.names(config, store));
+    }
+
+    /** Constructor with an explicit set of jobs to leave out. */
+    public DoraCalculator(MetricsStore store, DoraGlobalConfiguration config, Set<String> excludedJobs) {
         this.store = store;
         this.config = config;
+        this.excludedJobs = excludedJobs;
     }
 
     /**
      * Deployment Frequency: successful deploys per day.
      */
     public DoraMetric deploymentFrequency(long fromMs, long toMs, String jobPattern) {
-        long successCount = store.countSuccessfulBuilds(fromMs, toMs, jobPattern);
+        long successCount = store.countSuccessfulBuilds(fromMs, toMs, jobPattern, excludedJobs);
         double days = Math.max(1, (toMs - fromMs) / (double) 86400_000);
         double frequency = successCount / days;
 
@@ -71,7 +80,7 @@ public class DoraCalculator {
      * Lead Time for Changes: avg time from commit to deploy.
      */
     public DoraMetric leadTimeForChanges(long fromMs, long toMs, String jobPattern) {
-        double avgMs = store.avgLeadTimeMs(fromMs, toMs, jobPattern);
+        double avgMs = store.avgLeadTimeMs(fromMs, toMs, jobPattern, excludedJobs);
 
         if (avgMs <= 0) {
             return new DoraMetric("Lead Time for Changes", "N/A", DoraBand.LOW, 0);
@@ -95,7 +104,7 @@ public class DoraCalculator {
      * Still uses row-level scan (no simple SQL aggregate for this).
      */
     public DoraMetric meanTimeToRestore(long fromMs, long toMs, String jobPattern) {
-        List<BuildRecord> builds = store.getAllBuilds(fromMs, toMs);
+        List<BuildRecord> builds = store.getAllBuilds(fromMs, toMs, excludedJobs);
         if (!".*".equals(jobPattern) && jobPattern != null) {
             builds = builds.stream()
                     .filter(b -> b.jobName.matches(jobPattern))
@@ -142,12 +151,12 @@ public class DoraCalculator {
      * Change Failure Rate: % of deploys that fail.
      */
     public DoraMetric changeFailureRate(long fromMs, long toMs, String jobPattern) {
-        long total = store.countTotalBuilds(fromMs, toMs, jobPattern);
+        long total = store.countTotalBuilds(fromMs, toMs, jobPattern, excludedJobs);
         if (total == 0) {
             return new DoraMetric("Change Failure Rate", "N/A", DoraBand.LOW, 0);
         }
 
-        long failures = store.countFailedBuilds(fromMs, toMs, jobPattern);
+        long failures = store.countFailedBuilds(fromMs, toMs, jobPattern, excludedJobs);
         double rate = (double) failures / total * 100;
 
         double cfrElite = config != null ? config.getCfrElitePercent() : 5.0;

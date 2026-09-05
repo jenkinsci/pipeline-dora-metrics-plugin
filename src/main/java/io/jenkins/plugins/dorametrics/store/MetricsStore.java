@@ -202,12 +202,19 @@ public class MetricsStore {
     }
 
     public List<BuildRecord> getAllBuilds(long fromTimestamp, long toTimestamp) {
+        return getAllBuilds(fromTimestamp, toTimestamp, Collections.emptySet());
+    }
+
+    /** All builds in the window, leaving out the given job names. */
+    public List<BuildRecord> getAllBuilds(long fromTimestamp, long toTimestamp, Set<String> excludedJobs) {
         List<BuildRecord> records = new ArrayList<>();
-        String sql = "SELECT * FROM builds WHERE timestamp BETWEEN ? AND ? ORDER BY timestamp";
+        String sql = "SELECT * FROM builds WHERE timestamp BETWEEN ? AND ?"
+                + notIn("job_name", excludedJobs) + " ORDER BY timestamp";
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, fromTimestamp);
             ps.setLong(2, toTimestamp);
+            bindExcluded(ps, 3, excludedJobs);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     records.add(BuildRecord.fromResultSet(rs));
@@ -276,41 +283,50 @@ public class MetricsStore {
     // === Optimized aggregate queries ===
 
     public long countSuccessfulBuilds(long fromMs, long toMs, String jobPattern) {
-        if (".*".equals(jobPattern) || jobPattern == null) {
-            return executeCount("SELECT COUNT(*) FROM builds WHERE timestamp BETWEEN ? AND ? AND result = 'SUCCESS'",
-                    fromMs, toMs);
-        }
-        return executeCountWithGlob(fromMs, toMs, jobPattern, "AND result = 'SUCCESS'");
+        return countSuccessfulBuilds(fromMs, toMs, jobPattern, Collections.emptySet());
+    }
+
+    public long countSuccessfulBuilds(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs) {
+        return executeCount(fromMs, toMs, jobPattern, "AND result = 'SUCCESS'", excludedJobs);
     }
 
     public long countTotalBuilds(long fromMs, long toMs, String jobPattern) {
-        if (".*".equals(jobPattern) || jobPattern == null) {
-            return executeCount("SELECT COUNT(*) FROM builds WHERE timestamp BETWEEN ? AND ?", fromMs, toMs);
-        }
-        return executeCountWithGlob(fromMs, toMs, jobPattern, "");
+        return countTotalBuilds(fromMs, toMs, jobPattern, Collections.emptySet());
+    }
+
+    public long countTotalBuilds(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs) {
+        return executeCount(fromMs, toMs, jobPattern, "", excludedJobs);
     }
 
     public long countFailedBuilds(long fromMs, long toMs, String jobPattern) {
-        if (".*".equals(jobPattern) || jobPattern == null) {
-            return executeCount("SELECT COUNT(*) FROM builds WHERE timestamp BETWEEN ? AND ? AND result = 'FAILURE'",
-                    fromMs, toMs);
-        }
-        return executeCountWithGlob(fromMs, toMs, jobPattern, "AND result = 'FAILURE'");
+        return countFailedBuilds(fromMs, toMs, jobPattern, Collections.emptySet());
+    }
+
+    public long countFailedBuilds(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs) {
+        return executeCount(fromMs, toMs, jobPattern, "AND result = 'FAILURE'", excludedJobs);
     }
 
     public double avgLeadTimeMs(long fromMs, long toMs, String jobPattern) {
-        String baseSql = "SELECT AVG((b.timestamp + b.duration_ms) - c.min_commit) FROM builds b "
+        return avgLeadTimeMs(fromMs, toMs, jobPattern, Collections.emptySet());
+    }
+
+    public double avgLeadTimeMs(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs) {
+        boolean glob = jobPattern != null && !".*".equals(jobPattern);
+        String sql = "SELECT AVG((b.timestamp + b.duration_ms) - c.min_commit) FROM builds b "
                 + "INNER JOIN (SELECT build_id, MIN(timestamp) as min_commit FROM commits GROUP BY build_id) c "
                 + "ON b.id = c.build_id "
-                + "WHERE b.timestamp BETWEEN ? AND ? AND b.result = 'SUCCESS' AND c.min_commit > 0";
-        String sql = (".*".equals(jobPattern) || jobPattern == null) ? baseSql : baseSql + " AND b.job_name GLOB ?";
+                + "WHERE b.timestamp BETWEEN ? AND ? AND b.result = 'SUCCESS' AND c.min_commit > 0"
+                + (glob ? " AND b.job_name GLOB ?" : "")
+                + notIn("b.job_name", excludedJobs);
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, fromMs);
             ps.setLong(2, toMs);
-            if (!".*".equals(jobPattern) && jobPattern != null) {
-                ps.setString(3, regexToGlob(jobPattern));
+            int index = 3;
+            if (glob) {
+                ps.setString(index++, regexToGlob(jobPattern));
             }
+            bindExcluded(ps, index, excludedJobs);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) return rs.getDouble(1);
             }
@@ -321,6 +337,10 @@ public class MetricsStore {
     }
 
     public List<JobStats> getJobStats(long fromMs, long toMs, int limit, String orderBy) {
+        return getJobStats(fromMs, toMs, limit, orderBy, Collections.emptySet());
+    }
+
+    public List<JobStats> getJobStats(long fromMs, long toMs, int limit, String orderBy, Set<String> excludedJobs) {
         if (!ALLOWED_ORDER_BY.contains(orderBy)) {
             LOGGER.warning("Rejected invalid orderBy: " + orderBy);
             return Collections.emptyList();
@@ -329,13 +349,14 @@ public class MetricsStore {
         String sql = "SELECT job_name, COUNT(*) as total, "
                 + "AVG(duration_ms) as avg_dur, "
                 + "SUM(CASE WHEN result = 'FAILURE' THEN 1 ELSE 0 END) as failures "
-                + "FROM builds WHERE timestamp BETWEEN ? AND ? "
-                + "GROUP BY job_name ORDER BY " + orderBy + " LIMIT ?";
+                + "FROM builds WHERE timestamp BETWEEN ? AND ?"
+                + notIn("job_name", excludedJobs)
+                + " GROUP BY job_name ORDER BY " + orderBy + " LIMIT ?";
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, fromMs);
             ps.setLong(2, toMs);
-            ps.setInt(3, limit);
+            ps.setInt(bindExcluded(ps, 3, excludedJobs), limit);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     results.add(new JobStats(
@@ -353,6 +374,10 @@ public class MetricsStore {
     }
 
     public List<StageStats> getStageStats(long fromMs, long toMs, int limit, String orderBy) {
+        return getStageStats(fromMs, toMs, limit, orderBy, Collections.emptySet());
+    }
+
+    public List<StageStats> getStageStats(long fromMs, long toMs, int limit, String orderBy, Set<String> excludedJobs) {
         if (!ALLOWED_ORDER_BY.contains(orderBy)) {
             LOGGER.warning("Rejected invalid orderBy: " + orderBy);
             return Collections.emptyList();
@@ -362,13 +387,14 @@ public class MetricsStore {
                 + "AVG(s.duration_ms) as avg_dur, "
                 + "SUM(CASE WHEN s.result = 'FAILURE' THEN 1 ELSE 0 END) as failures "
                 + "FROM stages s INNER JOIN builds b ON s.build_id = b.id "
-                + "WHERE b.timestamp BETWEEN ? AND ? "
-                + "GROUP BY s.stage_name ORDER BY " + orderBy + " LIMIT ?";
+                + "WHERE b.timestamp BETWEEN ? AND ?"
+                + notIn("b.job_name", excludedJobs)
+                + " GROUP BY s.stage_name ORDER BY " + orderBy + " LIMIT ?";
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, fromMs);
             ps.setLong(2, toMs);
-            ps.setInt(3, limit);
+            ps.setInt(bindExcluded(ps, 3, excludedJobs), limit);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     results.add(new StageStats(
@@ -385,11 +411,21 @@ public class MetricsStore {
         return results;
     }
 
-    private long executeCount(String sql, long fromMs, long toMs) {
+    private long executeCount(long fromMs, long toMs, String jobPattern, String extraWhere, Set<String> excludedJobs) {
+        boolean glob = jobPattern != null && !".*".equals(jobPattern);
+        String sql = "SELECT COUNT(*) FROM builds WHERE timestamp BETWEEN ? AND ?"
+                + (glob ? " AND job_name GLOB ?" : "")
+                + " " + extraWhere
+                + notIn("job_name", excludedJobs);
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, fromMs);
             ps.setLong(2, toMs);
+            int index = 3;
+            if (glob) {
+                ps.setString(index++, regexToGlob(jobPattern));
+            }
+            bindExcluded(ps, index, excludedJobs);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) return rs.getLong(1);
             }
@@ -399,20 +435,29 @@ public class MetricsStore {
         return 0;
     }
 
-    private long executeCountWithGlob(long fromMs, long toMs, String jobPattern, String extraWhere) {
-        String sql = "SELECT COUNT(*) FROM builds WHERE timestamp BETWEEN ? AND ? AND job_name GLOB ? " + extraWhere;
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setLong(1, fromMs);
-            ps.setLong(2, toMs);
-            ps.setString(3, regexToGlob(jobPattern));
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) return rs.getLong(1);
-            }
-        } catch (SQLException e) {
-            LOGGER.log(Level.FINE, "Count query with glob failed", e);
+    /**
+     * SQL fragment excluding the given job names from a query, with one bind
+     * variable per name so the names are never interpolated. Empty when there is
+     * nothing to exclude. The bundled SQLite accepts 250000 bind variables per
+     * statement, far more than any realistic number of disabled jobs.
+     */
+    private static String notIn(String column, Set<String> excludedJobs) {
+        if (excludedJobs == null || excludedJobs.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder(" AND ").append(column).append(" NOT IN (");
+        for (int i = 0; i < excludedJobs.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append('?');
         }
-        return 0;
+        return sb.append(')').toString();
+    }
+
+    /** Binds the excluded job names starting at index and returns the next free index. */
+    private static int bindExcluded(PreparedStatement ps, int index, Set<String> excludedJobs) throws SQLException {
+        if (excludedJobs == null) return index;
+        for (String name : excludedJobs) {
+            ps.setString(index++, name);
+        }
+        return index;
     }
 
     /**

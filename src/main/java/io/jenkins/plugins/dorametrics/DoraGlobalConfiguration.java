@@ -27,6 +27,7 @@ public class DoraGlobalConfiguration extends GlobalConfiguration {
     private String productionFolders = "";
     private String productionJobLabel = "dora-production";
     private boolean trackAllBranches = true;
+    private boolean ignoreDisabledPipelines = false;
     private int retentionDays = 365;
     private int dashboardTopN = 10;
 
@@ -75,6 +76,7 @@ public class DoraGlobalConfiguration extends GlobalConfiguration {
         this.productionFolders = json.optString("productionFolders", "");
         this.productionJobLabel = json.optString("productionJobLabel", "dora-production");
         this.trackAllBranches = json.optBoolean("trackAllBranches", true);
+        this.ignoreDisabledPipelines = json.optBoolean("ignoreDisabledPipelines", false);
         this.retentionDays = Math.max(1, json.optInt("retentionDays", 365));
         this.dashboardTopN = Math.max(1, json.optInt("dashboardTopN", 10));
 
@@ -242,6 +244,9 @@ public class DoraGlobalConfiguration extends GlobalConfiguration {
 
     public boolean isTrackAllBranches() { return trackAllBranches; }
     public void setTrackAllBranches(boolean v) { this.trackAllBranches = v; }
+
+    public boolean isIgnoreDisabledPipelines() { return ignoreDisabledPipelines; }
+    public void setIgnoreDisabledPipelines(boolean v) { this.ignoreDisabledPipelines = v; }
 
     public int getRetentionDays() { return retentionDays; }
     public void setRetentionDays(int v) { this.retentionDays = v; }

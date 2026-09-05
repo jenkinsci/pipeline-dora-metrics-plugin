@@ -1,5 +1,7 @@
 package io.jenkins.plugins.dorametrics.rankings;
 
+import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
+import hudson.model.FreeStyleProject;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import org.junit.Before;
 import org.junit.Rule;
@@ -113,5 +115,43 @@ public class PipelineRankerTest {
 
         List<PipelineRanker.RankedPipeline> slowest = ranker.slowestPipelines(now - 1000, now + 1000, 5);
         assertEquals(5, slowest.size());
+    }
+
+    @Test
+    public void ignoresDisabledPipelinesWhenConfigured() throws Exception {
+        DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
+        j.createFreeStyleProject("rank-active");
+        FreeStyleProject disabled = j.createFreeStyleProject("rank-disabled");
+        disabled.disable();
+
+        long now = System.currentTimeMillis();
+        // The disabled job is the slowest, the flakiest and has the slowest stage.
+        store.insertBuild("rank-active", 1, now - 3000, 1000, "SUCCESS", "USER", null);
+        store.insertBuild("rank-active", 2, now - 2000, 1000, "SUCCESS", "USER", null);
+        store.insertBuild("rank-active", 3, now - 1000, 1000, "SUCCESS", "USER", null);
+        long b1 = store.insertBuild("rank-disabled", 1, now - 3000, 90000, "SUCCESS", "USER", null);
+        store.insertBuild("rank-disabled", 2, now - 2000, 90000, "FAILURE", "USER", null);
+        store.insertBuild("rank-disabled", 3, now - 1000, 90000, "SUCCESS", "USER", null);
+        store.insertStage(b1, "deploy-disabled", 80000, "SUCCESS");
+
+        long from = now - 10000;
+        long to = now + 1000;
+
+        config.setIgnoreDisabledPipelines(false);
+        PipelineRanker everything = new PipelineRanker();
+        assertEquals("rank-disabled", everything.slowestPipelines(from, to, 10).get(0).jobName);
+        assertEquals("rank-disabled", everything.flakiestPipelines(from, to, 10).get(0).jobName);
+        assertEquals("deploy-disabled", everything.slowestStages(from, to, 10).get(0).stageName);
+
+        config.setIgnoreDisabledPipelines(true);
+        PipelineRanker filtered = new PipelineRanker();
+        List<PipelineRanker.RankedPipeline> slowest = filtered.slowestPipelines(from, to, 10);
+        assertEquals(1, slowest.size());
+        assertEquals("rank-active", slowest.get(0).jobName);
+        List<PipelineRanker.RankedPipeline> flakiest = filtered.flakiestPipelines(from, to, 10);
+        assertEquals(1, flakiest.size());
+        assertEquals("rank-active", flakiest.get(0).jobName);
+        assertTrue(filtered.slowestStages(from, to, 10).isEmpty());
+        config.setIgnoreDisabledPipelines(false); // reset
     }
 }

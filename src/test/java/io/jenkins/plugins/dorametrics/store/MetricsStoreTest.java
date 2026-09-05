@@ -1,5 +1,6 @@
 package io.jenkins.plugins.dorametrics.store;
 
+import java.util.Set;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -202,5 +203,40 @@ public class MetricsStoreTest {
 
         double avgLt = store.avgLeadTimeMs(now - 1000, now + 1000, ".*");
         assertTrue("Lead time should be ~30 min", avgLt > 1700000 && avgLt < 1900000);
+    }
+
+    @Test
+    public void queriesLeaveExcludedJobsOut() {
+        long now = System.currentTimeMillis();
+        long a = store.insertBuild("keep", 1, now, 1000, "SUCCESS", "SCM", "main");
+        store.insertBuild("keep", 2, now, 1000, "FAILURE", "SCM", "main");
+        long b = store.insertBuild("drop", 1, now, 5000, "FAILURE", "SCM", "main");
+        store.insertBuild("drop-too", 1, now, 5000, "SUCCESS", "SCM", "main");
+        store.insertStage(a, "build", 500, "SUCCESS");
+        store.insertStage(b, "build", 4000, "FAILURE");
+        long from = now - 1000;
+        long to = now + 1000;
+        Set<String> excluded = Set.of("drop", "drop-too");
+
+        assertEquals(4, store.getAllBuilds(from, to).size());
+        assertEquals(2, store.getAllBuilds(from, to, excluded).size());
+        assertEquals(4, store.countTotalBuilds(from, to, ".*"));
+        assertEquals(2, store.countTotalBuilds(from, to, ".*", excluded));
+        assertEquals(1, store.countFailedBuilds(from, to, ".*", excluded));
+        assertEquals(1, store.countSuccessfulBuilds(from, to, ".*", excluded));
+        // Pattern and exclusion combine.
+        assertEquals(1, store.countTotalBuilds(from, to, "drop.*", java.util.Collections.emptySet()) - 1);
+        assertEquals(0, store.countTotalBuilds(from, to, "drop.*", excluded));
+
+        List<MetricsStore.JobStats> stats = store.getJobStats(from, to, 10, "avg_dur DESC", excluded);
+        assertEquals(1, stats.size());
+        assertEquals("keep", stats.get(0).jobName);
+
+        List<MetricsStore.StageStats> stages = store.getStageStats(from, to, 10, "avg_dur DESC", excluded);
+        assertEquals(1, stages.size());
+        assertEquals(500, stages.get(0).avgDurationMs, 0.001);
+
+        // An empty set changes nothing.
+        assertEquals(4, store.getAllBuilds(from, to, java.util.Collections.emptySet()).size());
     }
 }

@@ -3,6 +3,7 @@ package io.jenkins.plugins.dorametrics.ui;
 import hudson.Extension;
 import hudson.model.RootAction;
 import hudson.model.Item;
+import io.jenkins.plugins.dorametrics.DisabledPipelines;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.dora.DoraCalculator;
 import io.jenkins.plugins.dorametrics.dora.DoraCalculator.DoraMetric;
@@ -88,7 +89,7 @@ public class DoraApiAction implements RootAction {
         MetricsStore store = MetricsStore.getInstance();
         List<BuildRecord> builds = (jobName != null && !jobName.isEmpty())
                 ? store.getBuilds(jobName, fromMs, toMs)
-                : store.getAllBuilds(fromMs, toMs);
+                : store.getAllBuilds(fromMs, toMs, DisabledPipelines.names(DoraGlobalConfiguration.get(), store));
 
         Map<String, List<BuildRecord>> byDate = builds.stream()
                 .collect(Collectors.groupingBy(b -> {
@@ -125,7 +126,9 @@ public class DoraApiAction implements RootAction {
         long toMs = System.currentTimeMillis();
         long fromMs = toMs - ((long) days * 86400_000);
 
-        List<BuildRecord> builds = MetricsStore.getInstance().getAllBuilds(fromMs, toMs);
+        MetricsStore store = MetricsStore.getInstance();
+        List<BuildRecord> builds = store.getAllBuilds(fromMs, toMs,
+                DisabledPipelines.names(DoraGlobalConfiguration.get(), store));
 
         if ("csv".equalsIgnoreCase(format)) {
             StringBuilder csv = new StringBuilder();
