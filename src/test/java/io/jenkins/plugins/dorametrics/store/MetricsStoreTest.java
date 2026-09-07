@@ -6,6 +6,8 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.jvnet.hudson.test.JenkinsRule;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 
 import static org.junit.Assert.*;
@@ -238,5 +240,54 @@ public class MetricsStoreTest {
 
         // An empty set changes nothing.
         assertEquals(4, store.getAllBuilds(from, to, java.util.Collections.emptySet()).size());
+    }
+
+    @Test
+    public void avgLeadTimeLeavesExcludedJobsOut() {
+        long now = System.currentTimeMillis();
+        long keep = store.insertBuild("keep", 1, now, 1000, "SUCCESS", "SCM", "main");
+        store.insertCommit(keep, "sha-keep", "dev", now - 60_000);
+        long drop = store.insertBuild("drop", 1, now, 1000, "SUCCESS", "SCM", "main");
+        store.insertCommit(drop, "sha-drop", "dev", now - 3_600_000);
+        long from = now - 1000, to = now + 1000;
+        Set<String> excluded = Set.of("drop");
+
+        assertTrue("the retired job drags the unfiltered average up",
+                store.avgLeadTimeMs(from, to, ".*", excluded) < store.avgLeadTimeMs(from, to, ".*"));
+        assertEquals(61_000, store.avgLeadTimeMs(from, to, ".*", excluded), 3000);
+        // A glob and an exclusion in the same query: both sets of binds must line up.
+        assertEquals(61_000, store.avgLeadTimeMs(from, to, "keep.*", excluded), 3000);
+    }
+
+    @Test
+    public void statsExcludeBeforeApplyingLimit() {
+        long now = System.currentTimeMillis();
+        store.insertBuild("slow", 1, now, 30000, "SUCCESS", "USER", null);
+        store.insertBuild("medium", 1, now, 20000, "SUCCESS", "USER", null);
+        store.insertBuild("fast", 1, now, 10000, "SUCCESS", "USER", null);
+
+        // Excluding in SQL keeps a full page; filtering the rows afterwards would return one.
+        List<MetricsStore.JobStats> stats =
+                store.getJobStats(now - 1000, now + 1000, 2, "avg_dur DESC", Set.of("slow"));
+        assertEquals(2, stats.size());
+        assertEquals("medium", stats.get(0).jobName);
+        assertEquals("fast", stats.get(1).jobName);
+    }
+
+    @Test
+    public void unusableExcludedNamesAreIgnored() {
+        long now = System.currentTimeMillis();
+        store.insertBuild("only", 1, now, 1000, "SUCCESS", "USER", null);
+        long from = now - 1000, to = now + 1000;
+
+        // NOT IN (NULL) is NULL for every row, so a null entry must never reach the query.
+        Set<String> withNull = new HashSet<>(Arrays.asList("nonexistent", null, ""));
+        assertEquals(1, store.countTotalBuilds(from, to, ".*", withNull));
+        assertEquals(1, store.getAllBuilds(from, to, withNull).size());
+        assertEquals(1, store.getJobStats(from, to, 10, "avg_dur DESC", withNull).size());
+
+        // ...and a real name alongside an unusable one still excludes that job.
+        assertEquals(0, store.countTotalBuilds(from, to, ".*",
+                new HashSet<>(Arrays.asList("only", null))));
     }
 }

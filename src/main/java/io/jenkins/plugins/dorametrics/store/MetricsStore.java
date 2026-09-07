@@ -208,13 +208,14 @@ public class MetricsStore {
     /** All builds in the window, leaving out the given job names. */
     public List<BuildRecord> getAllBuilds(long fromTimestamp, long toTimestamp, Set<String> excludedJobs) {
         List<BuildRecord> records = new ArrayList<>();
+        List<String> excluded = usableNames(excludedJobs);
         String sql = "SELECT * FROM builds WHERE timestamp BETWEEN ? AND ?"
-                + notIn("job_name", excludedJobs) + " ORDER BY timestamp";
+                + notIn("job_name", excluded) + " ORDER BY timestamp";
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, fromTimestamp);
             ps.setLong(2, toTimestamp);
-            bindExcluded(ps, 3, excludedJobs);
+            bindExcluded(ps, 3, excluded);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     records.add(BuildRecord.fromResultSet(rs));
@@ -312,12 +313,13 @@ public class MetricsStore {
 
     public double avgLeadTimeMs(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs) {
         boolean glob = jobPattern != null && !".*".equals(jobPattern);
+        List<String> excluded = usableNames(excludedJobs);
         String sql = "SELECT AVG((b.timestamp + b.duration_ms) - c.min_commit) FROM builds b "
                 + "INNER JOIN (SELECT build_id, MIN(timestamp) as min_commit FROM commits GROUP BY build_id) c "
                 + "ON b.id = c.build_id "
                 + "WHERE b.timestamp BETWEEN ? AND ? AND b.result = 'SUCCESS' AND c.min_commit > 0"
                 + (glob ? " AND b.job_name GLOB ?" : "")
-                + notIn("b.job_name", excludedJobs);
+                + notIn("b.job_name", excluded);
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, fromMs);
@@ -326,7 +328,7 @@ public class MetricsStore {
             if (glob) {
                 ps.setString(index++, regexToGlob(jobPattern));
             }
-            bindExcluded(ps, index, excludedJobs);
+            bindExcluded(ps, index, excluded);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) return rs.getDouble(1);
             }
@@ -346,17 +348,18 @@ public class MetricsStore {
             return Collections.emptyList();
         }
         List<JobStats> results = new ArrayList<>();
+        List<String> excluded = usableNames(excludedJobs);
         String sql = "SELECT job_name, COUNT(*) as total, "
                 + "AVG(duration_ms) as avg_dur, "
                 + "SUM(CASE WHEN result = 'FAILURE' THEN 1 ELSE 0 END) as failures "
                 + "FROM builds WHERE timestamp BETWEEN ? AND ?"
-                + notIn("job_name", excludedJobs)
+                + notIn("job_name", excluded)
                 + " GROUP BY job_name ORDER BY " + orderBy + " LIMIT ?";
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, fromMs);
             ps.setLong(2, toMs);
-            ps.setInt(bindExcluded(ps, 3, excludedJobs), limit);
+            ps.setInt(bindExcluded(ps, 3, excluded), limit);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     results.add(new JobStats(
@@ -383,18 +386,19 @@ public class MetricsStore {
             return Collections.emptyList();
         }
         List<StageStats> results = new ArrayList<>();
+        List<String> excluded = usableNames(excludedJobs);
         String sql = "SELECT s.stage_name, COUNT(*) as total, "
                 + "AVG(s.duration_ms) as avg_dur, "
                 + "SUM(CASE WHEN s.result = 'FAILURE' THEN 1 ELSE 0 END) as failures "
                 + "FROM stages s INNER JOIN builds b ON s.build_id = b.id "
                 + "WHERE b.timestamp BETWEEN ? AND ?"
-                + notIn("b.job_name", excludedJobs)
+                + notIn("b.job_name", excluded)
                 + " GROUP BY s.stage_name ORDER BY " + orderBy + " LIMIT ?";
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, fromMs);
             ps.setLong(2, toMs);
-            ps.setInt(bindExcluded(ps, 3, excludedJobs), limit);
+            ps.setInt(bindExcluded(ps, 3, excluded), limit);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     results.add(new StageStats(
@@ -413,10 +417,11 @@ public class MetricsStore {
 
     private long executeCount(long fromMs, long toMs, String jobPattern, String extraWhere, Set<String> excludedJobs) {
         boolean glob = jobPattern != null && !".*".equals(jobPattern);
+        List<String> excluded = usableNames(excludedJobs);
         String sql = "SELECT COUNT(*) FROM builds WHERE timestamp BETWEEN ? AND ?"
                 + (glob ? " AND job_name GLOB ?" : "")
                 + " " + extraWhere
-                + notIn("job_name", excludedJobs);
+                + notIn("job_name", excluded);
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, fromMs);
@@ -425,7 +430,7 @@ public class MetricsStore {
             if (glob) {
                 ps.setString(index++, regexToGlob(jobPattern));
             }
-            bindExcluded(ps, index, excludedJobs);
+            bindExcluded(ps, index, excluded);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) return rs.getLong(1);
             }
@@ -441,8 +446,8 @@ public class MetricsStore {
      * nothing to exclude. The bundled SQLite accepts 250000 bind variables per
      * statement, far more than any realistic number of disabled jobs.
      */
-    private static String notIn(String column, Set<String> excludedJobs) {
-        if (excludedJobs == null || excludedJobs.isEmpty()) return "";
+    private static String notIn(String column, List<String> excludedJobs) {
+        if (excludedJobs.isEmpty()) return "";
         StringBuilder sb = new StringBuilder(" AND ").append(column).append(" NOT IN (");
         for (int i = 0; i < excludedJobs.size(); i++) {
             if (i > 0) sb.append(',');
@@ -452,12 +457,34 @@ public class MetricsStore {
     }
 
     /** Binds the excluded job names starting at index and returns the next free index. */
-    private static int bindExcluded(PreparedStatement ps, int index, Set<String> excludedJobs) throws SQLException {
-        if (excludedJobs == null) return index;
+    private static int bindExcluded(PreparedStatement ps, int index, List<String> excludedJobs) throws SQLException {
         for (String name : excludedJobs) {
             ps.setString(index++, name);
         }
         return index;
+    }
+
+    /**
+     * The names from {@code excludedJobs} that can actually be matched against
+     * {@code job_name}, in a fixed order so the placeholders {@link #notIn} writes and the
+     * values {@link #bindExcluded} binds always line up.
+     *
+     * <p>A null entry is dropped rather than bound: {@code job_name NOT IN (NULL)} is NULL
+     * for every row in SQL, which would silently reduce every metric to zero instead of
+     * excluding one job. No recorded job name is null, but these overloads are public API
+     * and a caller-supplied set can be.
+     */
+    private static List<String> usableNames(Set<String> excludedJobs) {
+        if (excludedJobs == null || excludedJobs.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> usable = new ArrayList<>(excludedJobs.size());
+        for (String name : excludedJobs) {
+            if (name != null && !name.isEmpty()) {
+                usable.add(name);
+            }
+        }
+        return usable;
     }
 
     /**

@@ -172,4 +172,27 @@ public class DoraCalculatorTest {
         assertEquals(3.0 / 30, filtered.deploymentFrequency(from, to, ".*").rawValue, 0.01);
         config.setIgnoreDisabledPipelines(false); // reset
     }
+
+    @Test
+    public void ignoresDisabledPipelinesForLeadTime() throws Exception {
+        long now = System.currentTimeMillis();
+        j.createFreeStyleProject("lt-active");
+        hudson.model.FreeStyleProject retired = j.createFreeStyleProject("lt-retired");
+        retired.disable();
+
+        long active = store.insertBuild("lt-active", 1, now, 1000, "SUCCESS", "SCM", "main");
+        store.insertCommit(active, "sha-active", "dev", now - 60_000);
+        long disabled = store.insertBuild("lt-retired", 1, now, 1000, "SUCCESS", "SCM", "main");
+        store.insertCommit(disabled, "sha-retired", "dev", now - 7_200_000);
+        long from = now - 1000, to = now + 1000;
+
+        DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
+        double unfiltered = new DoraCalculator(store, config).leadTimeForChanges(from, to, ".*").rawValue;
+
+        config.setIgnoreDisabledPipelines(true);
+        double filtered = new DoraCalculator(store, config).leadTimeForChanges(from, to, ".*").rawValue;
+
+        assertTrue("the retired pipeline's two-hour lead time must drop out", filtered < unfiltered);
+        assertEquals(61_000, filtered, 3000);
+    }
 }
