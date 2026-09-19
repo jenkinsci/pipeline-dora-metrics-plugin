@@ -516,6 +516,32 @@ public class MetricsStore {
         }
     }
 
+    /** Marks records of a deleted job. '@' is not allowed in a Jenkins item name. */
+    public static final String DELETED_MARKER = "@deleted-";
+
+    /**
+     * Detaches the records of a deleted job, and of everything below it when it
+     * was a folder, from the job name. The history stays in the totals that
+     * administrators and the scheduled export see, but a new job created under
+     * the same name starts empty instead of inheriting it.
+     */
+    public void detachDeletedJob(String fullName, long deletedAtMs) {
+        String sql = "UPDATE builds SET job_name = job_name || ? "
+                + "WHERE job_name = ? OR substr(job_name, 1, ?) = ?";
+        String prefix = fullName + "/";
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, DELETED_MARKER + deletedAtMs);
+            ps.setString(2, fullName);
+            ps.setInt(3, prefix.length());
+            ps.setString(4, prefix);
+            int updated = ps.executeUpdate();
+            LOGGER.fine("Detached " + updated + " build records of deleted job " + fullName);
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "Failed to detach records of deleted job: " + fullName, e);
+        }
+    }
+
     // === Maintenance ===
 
     public void cleanup(long retainAfterTimestamp) {

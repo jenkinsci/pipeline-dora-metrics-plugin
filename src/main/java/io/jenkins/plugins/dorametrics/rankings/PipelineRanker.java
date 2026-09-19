@@ -1,6 +1,6 @@
 package io.jenkins.plugins.dorametrics.rankings;
 
-import io.jenkins.plugins.dorametrics.DisabledPipelines;
+import io.jenkins.plugins.dorametrics.JobVisibility;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import io.jenkins.plugins.dorametrics.store.MetricsStore.BuildRecord;
@@ -28,7 +28,7 @@ public class PipelineRanker {
 
     /** Constructor for testing. */
     public PipelineRanker(MetricsStore store) {
-        this(store, DisabledPipelines.names(DoraGlobalConfiguration.get(), store));
+        this(store, JobVisibility.excludedForCurrentUser(DoraGlobalConfiguration.get(), store));
     }
 
     /** Constructor with an explicit set of jobs to leave out. */

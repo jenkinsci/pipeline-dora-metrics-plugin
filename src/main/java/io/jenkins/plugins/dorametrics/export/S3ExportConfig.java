@@ -194,7 +194,7 @@ public class S3ExportConfig extends ExportStorageConfig {
 
         @POST
         public ListBoxModel doFillCredentialsIdItems(@QueryParameter String credentialsId) {
-            if (!Jenkins.get().hasPermission(Jenkins.MANAGE)) {
+            if (!Jenkins.get().hasPermission(Jenkins.ADMINISTER)) {
                 return new StandardListBoxModel().includeCurrentValue(credentialsId);
             }
             return new StandardListBoxModel()

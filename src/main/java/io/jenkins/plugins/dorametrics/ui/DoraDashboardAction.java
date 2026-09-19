@@ -1,7 +1,6 @@
 package io.jenkins.plugins.dorametrics.ui;
 
 import hudson.Extension;
-import hudson.model.Item;
 import hudson.model.RootAction;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.dora.DoraCalculator;
@@ -102,10 +101,7 @@ public class DoraDashboardAction implements RootAction {
     private List<RankedPipeline> filterVisible(List<RankedPipeline> pipelines) {
         Jenkins jenkins = Jenkins.get();
         return pipelines.stream()
-                .filter(p -> {
-                    Item item = jenkins.getItemByFullName(p.jobName);
-                    return item != null && item.hasPermission(Item.READ);
-                })
+                .filter(p -> DoraApiAction.isVisibleItem(jenkins, p.jobName))
                 .collect(Collectors.toList());
     }
 
