@@ -17,12 +17,11 @@ import org.jenkinsci.plugins.workflow.cps.nodes.StepStartNode;
 import org.jenkinsci.plugins.workflow.graph.FlowNode;
 import org.jenkinsci.plugins.workflow.graphanalysis.DepthFirstScanner;
 import org.jenkinsci.plugins.workflow.job.WorkflowRun;
+import org.jenkinsci.plugins.workflow.steps.StepDescriptor;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -101,48 +100,40 @@ public class BuildDataCollector extends RunListener<Run<?, ?>> {
             scanner.setup(run.getExecution().getCurrentHeads());
             scanner.forEach(allNodes::add);
 
-            Map<String, FlowNode> stageStarts = new LinkedHashMap<>();
-            Map<String, FlowNode> stageEnds = new LinkedHashMap<>();
-
+            // A stage is identified by its own start node, not by its name: the same
+            // name can run several times in one build (parallel branches, a matrix, a loop).
+            List<StepEndNode> stageEnds = new ArrayList<>();
             for (FlowNode node : allNodes) {
-                if (node instanceof StepStartNode startNode) {
-                    LabelAction labelAction = node.getAction(LabelAction.class);
-                    if (labelAction != null) {
-                        if (node.getAction(org.jenkinsci.plugins.workflow.actions.ThreadNameAction.class) != null
-                                || startNode.getDescriptor() == null
-                                || "stage".equals(startNode.getDescriptor().getFunctionName())) {
-                            stageStarts.putIfAbsent(labelAction.getDisplayName(), node);
-                        }
-                    }
-                } else if (node instanceof StepEndNode) {
-                    FlowNode start = ((StepEndNode) node).getStartNode();
-                    LabelAction labelAction = start.getAction(LabelAction.class);
-                    if (labelAction != null) {
-                        stageEnds.putIfAbsent(labelAction.getDisplayName(), node);
-                    }
+                if (node instanceof StepEndNode endNode && isStageOrBranch(endNode.getStartNode())) {
+                    stageEnds.add(endNode);
                 }
             }
 
-            for (Map.Entry<String, FlowNode> entry : stageStarts.entrySet()) {
-                String stageName = entry.getKey();
-                FlowNode startNode = entry.getValue();
-                FlowNode endNode = stageEnds.get(stageName);
-                if (endNode == null) continue;
-
+            for (StepEndNode endNode : stageEnds) {
+                StepStartNode startNode = endNode.getStartNode();
+                LabelAction label = startNode.getAction(LabelAction.class);
                 TimingAction startTiming = startNode.getAction(TimingAction.class);
                 TimingAction endTiming = endNode.getAction(TimingAction.class);
-                if (startTiming == null || endTiming == null) continue;
+                if (label == null || startTiming == null || endTiming == null) continue;
 
                 long duration = Math.max(0, endTiming.getStartTime() - startTiming.getStartTime());
                 boolean hasError = endNode.getAction(ErrorAction.class) != null;
 
-                store.insertStage(buildId, stageName, duration, hasError ? "FAILURE" : "SUCCESS");
+                store.insertStage(buildId, label.getDisplayName(), duration, hasError ? "FAILURE" : "SUCCESS");
             }
 
-            LOGGER.fine("Collected " + stageStarts.size() + " stages for " + run.getFullDisplayName());
+            LOGGER.fine("Collected " + stageEnds.size() + " stages for " + run.getFullDisplayName());
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "Could not collect stage data for " + run.getFullDisplayName(), e);
         }
+    }
+
+    /** A stage step or a branch of a parallel step, as opposed to a step that only carries a label. */
+    private static boolean isStageOrBranch(StepStartNode startNode) {
+        StepDescriptor descriptor = startNode.getDescriptor();
+        return startNode.getAction(org.jenkinsci.plugins.workflow.actions.ThreadNameAction.class) != null
+                || descriptor == null
+                || "stage".equals(descriptor.getFunctionName());
     }
 
     private String getBranch(Run<?, ?> run) {
