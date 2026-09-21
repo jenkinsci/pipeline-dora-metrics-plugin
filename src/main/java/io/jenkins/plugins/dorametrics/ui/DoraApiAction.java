@@ -3,7 +3,7 @@ package io.jenkins.plugins.dorametrics.ui;
 import hudson.Extension;
 import hudson.model.RootAction;
 import hudson.model.Item;
-import io.jenkins.plugins.dorametrics.DisabledPipelines;
+import io.jenkins.plugins.dorametrics.JobVisibility;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.dora.DoraCalculator;
 import io.jenkins.plugins.dorametrics.dora.DoraCalculator.DoraMetric;
@@ -87,9 +87,15 @@ public class DoraApiAction implements RootAction {
         long fromMs = toMs - ((long) days * 86400_000);
 
         MetricsStore store = MetricsStore.getInstance();
-        List<BuildRecord> builds = (jobName != null && !jobName.isEmpty())
+        boolean singleJob = jobName != null && !jobName.isEmpty();
+        if (singleJob && !JobVisibility.canRead(jobName)) {
+            // Same answer for a job that does not exist and one the user may not read
+            return org.kohsuke.stapler.HttpResponses.notFound();
+        }
+        List<BuildRecord> builds = singleJob
                 ? store.getBuilds(jobName, fromMs, toMs)
-                : store.getAllBuilds(fromMs, toMs, DisabledPipelines.names(DoraGlobalConfiguration.get(), store));
+                : store.getAllBuilds(fromMs, toMs,
+                        JobVisibility.excludedForCurrentUser(DoraGlobalConfiguration.get(), store));
 
         Map<String, List<BuildRecord>> byDate = builds.stream()
                 .collect(Collectors.groupingBy(b -> {
@@ -128,7 +134,7 @@ public class DoraApiAction implements RootAction {
 
         MetricsStore store = MetricsStore.getInstance();
         List<BuildRecord> builds = store.getAllBuilds(fromMs, toMs,
-                DisabledPipelines.names(DoraGlobalConfiguration.get(), store));
+                JobVisibility.excludedForCurrentUser(DoraGlobalConfiguration.get(), store));
 
         if ("csv".equalsIgnoreCase(format)) {
             StringBuilder csv = new StringBuilder();
@@ -187,11 +193,18 @@ public class DoraApiAction implements RootAction {
 
     private static List<RankedPipeline> filterVisible(List<RankedPipeline> pipelines, Jenkins jenkins) {
         return pipelines.stream()
-                .filter(p -> {
-                    Item item = jenkins.getItemByFullName(p.jobName);
-                    return item != null && item.hasPermission(Item.READ);
-                })
+                .filter(p -> isVisibleItem(jenkins, p.jobName))
                 .collect(java.util.stream.Collectors.toList());
+    }
+
+    /** A ranking row links to the job, so the job has to exist and be readable. */
+    static boolean isVisibleItem(Jenkins jenkins, String jobName) {
+        try {
+            Item item = jenkins.getItemByFullName(jobName);
+            return item != null && item.hasPermission(Item.READ);
+        } catch (org.springframework.security.access.AccessDeniedException e) {
+            return false;
+        }
     }
 
     private String getPattern() {

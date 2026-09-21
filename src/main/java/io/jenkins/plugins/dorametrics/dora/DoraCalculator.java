@@ -1,6 +1,6 @@
 package io.jenkins.plugins.dorametrics.dora;
 
-import io.jenkins.plugins.dorametrics.DisabledPipelines;
+import io.jenkins.plugins.dorametrics.JobVisibility;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import io.jenkins.plugins.dorametrics.store.MetricsStore.BuildRecord;
@@ -45,7 +45,7 @@ public class DoraCalculator {
 
     /** Constructor for testing with injected dependencies. */
     public DoraCalculator(MetricsStore store, DoraGlobalConfiguration config) {
-        this(store, config, DisabledPipelines.names(config, store));
+        this(store, config, JobVisibility.excludedForCurrentUser(config, store));
     }
 
     /** Constructor with an explicit set of jobs to leave out. */
