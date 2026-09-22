@@ -2,7 +2,6 @@ package io.jenkins.plugins.dorametrics.ui;
 
 import hudson.Extension;
 import hudson.model.RootAction;
-import hudson.model.Item;
 import io.jenkins.plugins.dorametrics.JobVisibility;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.dora.DoraCalculator;
@@ -200,8 +199,7 @@ public class DoraApiAction implements RootAction {
     /** A ranking row links to the job, so the job has to exist and be readable. */
     static boolean isVisibleItem(Jenkins jenkins, String jobName) {
         try {
-            Item item = jenkins.getItemByFullName(jobName);
-            return item != null && item.hasPermission(Item.READ);
+            return jenkins.getItemByFullName(jobName) != null;
         } catch (org.springframework.security.access.AccessDeniedException e) {
             return false;
         }

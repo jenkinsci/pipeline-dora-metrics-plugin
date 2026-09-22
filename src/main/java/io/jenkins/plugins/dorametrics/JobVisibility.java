@@ -1,6 +1,5 @@
 package io.jenkins.plugins.dorametrics;
 
-import hudson.model.Item;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import jenkins.model.Jenkins;
 import org.kohsuke.stapler.Stapler;
@@ -28,7 +27,8 @@ public final class JobVisibility {
      * Whether the current user may see data recorded for this job. Administrators
      * see everything, including jobs that no longer exist. Everyone else needs
      * Item/Read on a job that still exists, so a missing job and a job the user
-     * may not read look the same.
+     * may not read look the same. {@code getItemByFullName} already returns null
+     * for a job the user may not read.
      */
     public static boolean canRead(String jobFullName) {
         if (jobFullName == null) {
@@ -42,8 +42,7 @@ public final class JobVisibility {
             return true;
         }
         try {
-            Item item = jenkins.getItemByFullName(jobFullName);
-            return item != null && item.hasPermission(Item.READ);
+            return jenkins.getItemByFullName(jobFullName) != null;
         } catch (AccessDeniedException e) {
             // Item/Discover without Item/Read
             return false;
