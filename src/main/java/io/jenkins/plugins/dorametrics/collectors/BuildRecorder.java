@@ -1,6 +1,7 @@
 package io.jenkins.plugins.dorametrics.collectors;
 
 import hudson.model.Cause;
+import hudson.model.Result;
 import hudson.model.Run;
 import hudson.scm.ChangeLogSet;
 import jenkins.scm.RunWithSCM;
@@ -11,6 +12,7 @@ import org.jenkinsci.plugins.workflow.actions.LabelAction;
 import org.jenkinsci.plugins.workflow.actions.TimingAction;
 import org.jenkinsci.plugins.workflow.cps.nodes.StepEndNode;
 import org.jenkinsci.plugins.workflow.cps.nodes.StepStartNode;
+import org.jenkinsci.plugins.workflow.flow.FlowExecution;
 import org.jenkinsci.plugins.workflow.graph.FlowNode;
 import org.jenkinsci.plugins.workflow.graphanalysis.DepthFirstScanner;
 import org.jenkinsci.plugins.workflow.job.WorkflowRun;
@@ -49,7 +51,8 @@ public final class BuildRecorder {
         int buildNumber = run.getNumber();
         long timestamp = run.getTimeInMillis();
         long durationMs = run.getDuration();
-        String result = run.getResult() != null ? run.getResult().toString() : "UNKNOWN";
+        Result runResult = run.getResult();
+        String result = runResult != null ? runResult.toString() : "UNKNOWN";
         String triggerType = getTriggerType(run);
         String branch = getBranch(run);
 
@@ -88,11 +91,12 @@ public final class BuildRecorder {
 
     private static void collectStageData(WorkflowRun run, long buildId, MetricsStore store) {
         try {
-            if (run.getExecution() == null) return;
+            FlowExecution execution = run.getExecution();
+            if (execution == null) return;
 
             DepthFirstScanner scanner = new DepthFirstScanner();
             List<FlowNode> allNodes = new ArrayList<>();
-            scanner.setup(run.getExecution().getCurrentHeads());
+            scanner.setup(execution.getCurrentHeads());
             scanner.forEach(allNodes::add);
 
             // A stage is identified by its own start node, not by its name: the same
