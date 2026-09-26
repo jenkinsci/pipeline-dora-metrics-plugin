@@ -17,6 +17,7 @@ import java.util.stream.Collectors;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class BuildHistoryImporterTest {
@@ -241,6 +242,37 @@ public class BuildHistoryImporterTest {
 
         config.setRetentionDays(365);
         assertEquals("and left alone when it already fits", 90, BuildHistoryImporter.resolveDays(config));
+    }
+
+    /**
+     * The endpoint reports that an import started, so the slot must be taken by the time
+     * it answers. If it were only taken when the submitted task begins, a caller polling
+     * straight afterwards would see "not running" and read the previous run's counters as
+     * though they were this run's.
+     */
+    @Test
+    public void reserveIsHeldUntilReleased() {
+        assertTrue("the first caller takes the slot", BuildHistoryImporter.reserve());
+        assertTrue("and it reads as running", BuildHistoryImporter.isRunning());
+        assertTrue("a second caller is turned away", !BuildHistoryImporter.reserve());
+
+        BuildHistoryImporter.release();
+
+        assertTrue("released", !BuildHistoryImporter.isRunning());
+        assertTrue("and the slot is free again", BuildHistoryImporter.reserve());
+        BuildHistoryImporter.release();
+    }
+
+    /** A synchronous import must not start while one is already reserved. */
+    @Test
+    public void importHistoryRefusesWhileAnotherIsRunning() {
+        assertTrue(BuildHistoryImporter.reserve());
+        try {
+            assertNull("should refuse rather than run concurrently",
+                    BuildHistoryImporter.importHistory(30));
+        } finally {
+            BuildHistoryImporter.release();
+        }
     }
 
     @Test

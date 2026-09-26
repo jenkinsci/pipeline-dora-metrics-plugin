@@ -70,12 +70,13 @@ public final class BuildHistoryImporter {
     }
 
     /**
-     * Imports every build newer than {@code days} days that is not already stored.
+     * Imports every build newer than {@code days} days that is not already stored, on the
+     * calling thread.
      *
      * @return the counters, or null if an import was already running
      */
     public static Result importHistory(int days) {
-        if (!RUNNING.compareAndSet(false, true)) {
+        if (!reserve()) {
             LOGGER.info("Build history import already running, ignoring this request");
             return null;
         }
@@ -85,8 +86,42 @@ public final class BuildHistoryImporter {
                 return run(days);
             }
         } finally {
-            RUNNING.set(false);
+            release();
         }
+    }
+
+    /**
+     * Starts an import on Jenkins' executor and returns at once.
+     *
+     * <p>The slot is taken before this returns, not when the submitted task begins, so a
+     * caller that polls {@link #isRunning()} immediately afterwards sees the import in
+     * progress rather than the counters of the previous one.
+     *
+     * @return false if an import was already running, in which case nothing was started
+     */
+    public static boolean startAsync(int days) {
+        if (!reserve()) {
+            return false;
+        }
+        jenkins.util.Timer.get().submit(() -> {
+            try (ACLContext ignored = ACL.as2(ACL.SYSTEM2)) {
+                run(days);
+            } catch (Exception e) {
+                LOGGER.log(Level.WARNING, "Build history import failed", e);
+            } finally {
+                release();
+            }
+        });
+        return true;
+    }
+
+    /** Takes the single-flight slot. Package private so the contract can be tested directly. */
+    static boolean reserve() {
+        return RUNNING.compareAndSet(false, true);
+    }
+
+    static void release() {
+        RUNNING.set(false);
     }
 
     private static Result run(int days) {

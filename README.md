@@ -12,6 +12,12 @@ A Jenkins plugin that tracks all four DORA metrics, pipeline analytics, rankings
 - Mean Time to Restore (failure to recovery)
 - Change Failure Rate (% failed deployments)
 
+**Build History Import**
+- Imports builds already on disk, once, the first time the plugin runs, so a new install is not an empty dashboard
+- Recovers builds that a job filter excluded at the time, which widening the filter alone cannot do
+- Re-runnable on demand from the dashboard by an administrator
+- Imported builds get the same stage and commit collection as builds recorded live
+
 **Pipeline Rankings and Stage Analytics**
 
 ![Pipeline Rankings and Stage Analytics](docs/dora-rankings-stages.png)
@@ -85,6 +91,25 @@ The plugin uses a `RunListener` to automatically capture build data after every 
 | Large (200 jobs) | 1000 | ~70MB |
 | Enterprise (1000 jobs) | 5000 | ~350MB |
 
+### Build history import
+
+Builds are normally recorded by a `RunListener` as they finish, so nothing that ran before
+the plugin was installed is in the store. The first time the plugin runs it imports the
+builds already on disk, going back **Build History Import (days)**, capped at the retention
+window.
+
+It walks every job newest first and stops at the cutoff, skips builds that are still
+running, and skips builds already recorded rather than rewriting them. Job filters apply
+exactly as they do for live builds, so an excluded job stays excluded. Whether the import
+has run is stored in the configuration, so a restart does not scan again.
+
+An administrator can run it again from **Import history** on the dashboard, which is useful
+after widening a job filter: a build that did not match when it ran is not recorded, and
+widening the pattern alone does not bring it back.
+
+An import can only read what Jenkins still has on disk. A job whose build discarder has
+already removed old builds cannot be recovered.
+
 ## Configuration
 
 Navigate to **Manage Jenkins > System** and scroll to the **Pipeline DORA Metrics** section.
@@ -143,7 +168,6 @@ io.jenkins.plugins.dorametrics/
 
 **v1.1 (Planned)**
 - Additional export backends (GCS, Azure Blob) and IAM role support for S3
-- Historical build import (backfill metrics from existing Jenkins build history)
 - Grafana dashboard template (JSON) that consumes the REST API
 
 **v1.2 (Planned)**
