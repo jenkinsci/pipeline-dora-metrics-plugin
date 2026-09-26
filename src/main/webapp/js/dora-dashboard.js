@@ -184,5 +184,90 @@ function createSparkline(id, data, color) {
     if (toEl) toEl.value = today.toISOString().split('T')[0];
     if (fromEl) fromEl.value = thirtyAgo.toISOString().split('T')[0];
 
+    // Build history import. Only rendered for users who may run it, but the endpoint
+    // checks the permission again, so hiding the button is convenience and not security.
+    var importBtn = document.getElementById('dora-import-btn');
+    if (importBtn) {
+        importBtn.addEventListener('click', startImport);
+        showRememberedImportSummary();
+    }
+
     if (typeof Chart !== 'undefined') { loadCharts(30); }
 })();
+
+// sessionStorage can be unavailable or throw, so never let it break the page.
+function rememberImportSummary(text) {
+    try { window.sessionStorage.setItem('doraImportSummary', text || ''); } catch (e) { /* ignore */ }
+}
+
+function showRememberedImportSummary() {
+    var text = null;
+    try {
+        text = window.sessionStorage.getItem('doraImportSummary');
+        if (text !== null) { window.sessionStorage.removeItem('doraImportSummary'); }
+    } catch (e) { return; }
+    if (text) { setImportStatus(text); }
+}
+
+function setImportStatus(text) {
+    var el = document.getElementById('dora-import-status');
+    if (el) { el.textContent = text || ''; }
+}
+
+function describeImport(data) {
+    if (!data) { return ''; }
+    if (data.running) { return 'Import running...'; }
+    if (typeof data.recorded === 'undefined') { return ''; }
+    var text = 'Imported ' + data.recorded + ' build' + (data.recorded === 1 ? '' : 's')
+        + ' from ' + data.jobs + ' job' + (data.jobs === 1 ? '' : 's');
+    if (data.skipped) { text += ', ' + data.skipped + ' skipped'; }
+    if (data.failed) { text += ', ' + data.failed + ' failed'; }
+    return text + '.';
+}
+
+function pollImportStatus(base) {
+    fetch(base + '/dora-api/importStatus')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            setImportStatus(describeImport(data));
+            if (data.running) {
+                window.setTimeout(function() { pollImportStatus(base); }, 2000);
+            } else {
+                // The rankings and stage tables are rendered server side and have no
+                // client-side refresh, so the page has to reload to show imported data
+                // everywhere rather than only in the cards and charts. Carry the counters
+                // across the reload so they are still readable afterwards.
+                rememberImportSummary(describeImport(data));
+                window.location.reload();
+            }
+        })
+        .catch(function() { setImportStatus('Could not read import status.'); });
+}
+
+function startImport() {
+    var base = getBaseUrl();
+    dialog.confirm('Import build history?', {
+        message: 'This reads builds already on disk and adds any that are missing. '
+            + 'Builds already recorded are left alone.'
+    }).then(function() {
+        var headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+        crumb.wrap(headers);
+        setImportStatus('Starting...');
+        fetch(base + '/dora-api/importHistory', { method: 'POST', headers: headers })
+            .then(function(r) {
+                if (r.status === 403) {
+                    dialog.alert('Session expired', { message: 'Reload the page and try again.' });
+                    setImportStatus('');
+                    return null;
+                }
+                if (!r.ok) { throw new Error('HTTP ' + r.status); }
+                return r.json();
+            })
+            .then(function(data) {
+                if (!data) { return; }
+                setImportStatus(data.message || 'Import running...');
+                pollImportStatus(base);
+            })
+            .catch(function() { setImportStatus('Could not start the import.'); });
+    }, function() { /* cancelled */ });
+}

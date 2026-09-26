@@ -29,6 +29,12 @@ public class DoraDashboardAction implements RootAction {
     @Override
     public String getUrlName() { return "dora-metrics"; }
 
+    /** Whether the current user may trigger a build history import. Used by index.jelly. */
+    @SuppressWarnings("unused") // called from Jelly
+    public boolean isCanImport() {
+        return Jenkins.get().hasPermission(Jenkins.ADMINISTER);
+    }
+
     // === Dashboard data for Jelly ===
 
     private static final DoraMetric EMPTY_METRIC =

@@ -4,6 +4,7 @@ import hudson.Extension;
 import hudson.model.RootAction;
 import io.jenkins.plugins.dorametrics.JobVisibility;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
+import io.jenkins.plugins.dorametrics.collectors.BuildHistoryImporter;
 import io.jenkins.plugins.dorametrics.dora.DoraCalculator;
 import io.jenkins.plugins.dorametrics.dora.DoraCalculator.DoraMetric;
 import io.jenkins.plugins.dorametrics.rankings.PipelineRanker;
@@ -17,6 +18,7 @@ import net.sf.json.JSONObject;
 import org.kohsuke.stapler.HttpResponse;
 import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.verb.GET;
+import org.kohsuke.stapler.verb.POST;
 
 import java.util.Calendar;
 import java.util.List;
@@ -38,6 +40,57 @@ public class DoraApiAction implements RootAction {
 
     @Override
     public String getUrlName() { return "dora-api"; }
+
+    /**
+     * Starts a build history import. Administer only, and POST only, because it writes.
+     * Returns immediately: the import runs on Jenkins' own executor, and the caller polls
+     * {@link #doImportStatus()} for the counters.
+     */
+    @POST
+    public HttpResponse doImportHistory() {
+        Jenkins.get().checkPermission(Jenkins.ADMINISTER);
+
+        DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
+        int days = BuildHistoryImporter.resolveDays(config);
+
+        // startAsync takes the slot before it returns, so the caller's first status poll
+        // cannot see "not running" and mistake the previous run's counters for this one.
+        if (!BuildHistoryImporter.startAsync(days)) {
+            return new org.kohsuke.stapler.json.JsonHttpResponse(statusJson("An import is already running"), 200);
+        }
+
+        JSONObject json = new JSONObject();
+        json.put("started", true);
+        json.put("days", days);
+        return new org.kohsuke.stapler.json.JsonHttpResponse(json, 200);
+    }
+
+    /**
+     * Counters for the running or most recent import. Administer only, and deliberately
+     * counters only: it exposes no job names or build data.
+     */
+    @GET
+    public HttpResponse doImportStatus() {
+        Jenkins.get().checkPermission(Jenkins.ADMINISTER);
+        return new org.kohsuke.stapler.json.JsonHttpResponse(statusJson(null), 200);
+    }
+
+    private static JSONObject statusJson(String message) {
+        JSONObject json = new JSONObject();
+        json.put("running", BuildHistoryImporter.isRunning());
+        BuildHistoryImporter.Result last = BuildHistoryImporter.getLastResult();
+        if (last != null) {
+            json.put("jobs", last.jobs);
+            json.put("recorded", last.recorded);
+            json.put("skipped", last.skipped);
+            json.put("failed", last.failed);
+            json.put("durationMs", last.durationMs);
+        }
+        if (message != null) {
+            json.put("message", message);
+        }
+        return json;
+    }
 
     @GET
     public HttpResponse doOverview(@QueryParameter(value = "days") String daysParam) {
