@@ -103,9 +103,15 @@ running, and skips builds already recorded rather than rewriting them. Job filte
 exactly as they do for live builds, so an excluded job stays excluded. Whether the import
 has run is stored in the configuration, so a restart does not scan again.
 
-An administrator can run it again from **Import history** on the dashboard, which is useful
-after widening a job filter: a build that did not match when it ran is not recorded, and
-widening the pattern alone does not bring it back.
+An administrator can run it again from **Import history** on the dashboard. There are two
+reasons to. Raising **Build History Import (days)** does not reach back on its own, so a
+dashboard asked for a year while only thirty days were imported stays empty behind those
+thirty days until the import is run again. Widening a job filter has the same problem: a
+build that did not match when it ran was never recorded, and widening the pattern alone
+does not bring it back.
+
+Re-running is cheap. Builds already recorded are skipped, so a second run only fetches
+what is missing.
 
 An import can only read what Jenkins still has on disk. A job whose build discarder has
 already removed old builds cannot be recovered.
@@ -122,7 +128,7 @@ Navigate to **Manage Jenkins > System** and scroll to the **Pipeline DORA Metric
 - **Production Branch Pattern:** Regex for branches that count as production (e.g., `main|master|release/.*`)
 
 **Build History Import:**
-- **Build History Import (days):** How much existing build history to import, the first time the plugin runs. Default: `30`. Capped at the retention window, so it never imports builds the next cleanup would delete. This is not the same as the dashboard date range: the range only displays what has already been imported, so asking the dashboard for a year while this is set to 30 shows thirty days of data and nothing behind it. The import runs once, so set this before it runs.
+- **Build History Import (days):** How much existing build history to import, the first time the plugin runs. Default: `30`. Capped at the retention window, so it never imports builds the next cleanup would delete. This is not the same as the dashboard date range: the range only displays what has already been imported, so asking the dashboard for a year while this is set to 30 shows thirty days of data and nothing behind it. The import runs once on its own. To cover more history later, raise this and use **Import history** on the dashboard.
 
 **DORA Thresholds:** Customize the Elite/High/Medium/Low band boundaries for each metric to match your team's standards.
 
