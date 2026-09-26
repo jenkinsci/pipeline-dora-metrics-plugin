@@ -4,12 +4,16 @@ import hudson.model.FreeStyleBuild;
 import hudson.model.FreeStyleProject;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
+import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition;
+import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.SleepBuilder;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -135,6 +139,92 @@ public class BuildHistoryImporterTest {
         long now = System.currentTimeMillis();
         assertTrue("and nothing should have been written for it",
                 store.getBuilds("old-job", now - (90L * 86_400_000L), now).isEmpty());
+    }
+
+    /**
+     * The point of the import is the stage breakdown, not just a row per build. If an
+     * import only wrote the build row, the dashboard would show the build with no stages
+     * and nothing would fail, so this asserts the stages explicitly.
+     */
+    @Test
+    public void recordsStagesForImportedBuilds() throws Exception {
+        DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
+        config.setExcludedJobPattern("staged-job");
+
+        WorkflowJob job = j.createProject(WorkflowJob.class, "staged-job");
+        job.setDefinition(new CpsFlowDefinition(
+                "node { stage('Checkout') { echo 'a' }; stage('Build') { echo 'b' }; "
+                + "stage('Test') { parallel('unit': { echo 'c' }, 'integration': { echo 'd' }) } }",
+                true));
+        j.buildAndAssertSuccess(job);
+        assertTrue("the listener skipped it", stored("staged-job").isEmpty());
+
+        config.setExcludedJobPattern("");
+        BuildHistoryImporter.importHistory(30);
+
+        List<MetricsStore.BuildRecord> builds = stored("staged-job");
+        assertEquals(1, builds.size());
+        List<MetricsStore.StageRecord> stages = store.getStages(builds.get(0).id);
+        assertEquals("three stages plus the two parallel branches", 5, stages.size());
+
+        List<String> names = stages.stream().map(st -> st.stageName).collect(Collectors.toList());
+        assertTrue("Checkout should be recorded, got " + names, names.contains("Checkout"));
+        assertTrue("Build should be recorded, got " + names, names.contains("Build"));
+        assertTrue("Test should be recorded, got " + names, names.contains("Test"));
+    }
+
+    /**
+     * An import covers builds it has already seen, so it must not keep appending stage rows
+     * for them. The build row is upserted, but stages are plain inserts, so a re-import that
+     * re-recorded would double them.
+     */
+    @Test
+    public void importingTwiceDoesNotDuplicateStages() throws Exception {
+        DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
+        config.setExcludedJobPattern("restage-job");
+
+        WorkflowJob job = j.createProject(WorkflowJob.class, "restage-job");
+        job.setDefinition(new CpsFlowDefinition(
+                "node { stage('Only') { echo 'x' } }", true));
+        j.buildAndAssertSuccess(job);
+
+        config.setExcludedJobPattern("");
+        BuildHistoryImporter.importHistory(30);
+
+        long buildId = stored("restage-job").get(0).id;
+        int afterFirst = store.getStages(buildId).size();
+        assertEquals("one stage from the first import", 1, afterFirst);
+
+        BuildHistoryImporter.importHistory(30);
+
+        assertEquals("the build must not be duplicated", 1, stored("restage-job").size());
+        assertEquals("and its stages must not be appended to again",
+                afterFirst, store.getStages(stored("restage-job").get(0).id).size());
+    }
+
+    /**
+     * A build still in progress has no final result or duration, so importing it would
+     * store a half-finished row. The listener records it properly when it completes.
+     */
+    @Test
+    public void skipsBuildsThatAreStillRunning() throws Exception {
+        DoraGlobalConfiguration.get().setExcludedJobPattern("");
+
+        FreeStyleProject job = j.createFreeStyleProject("running-job");
+        job.getBuildersList().add(new SleepBuilder(60_000));
+        FreeStyleBuild build = job.scheduleBuild2(0).waitForStart();
+        try {
+            assertTrue("the build should still be running", build.isBuilding());
+
+            BuildHistoryImporter.Result result = BuildHistoryImporter.importHistory(30);
+
+            assertEquals("a running build must not be imported", 0, result.recorded);
+            assertTrue("and it should be counted as skipped", result.skipped >= 1);
+            assertTrue("nothing should have been stored for it", stored("running-job").isEmpty());
+        } finally {
+            build.doStop();
+            j.waitForCompletion(build);
+        }
     }
 
     /**
