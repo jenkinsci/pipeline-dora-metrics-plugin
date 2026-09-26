@@ -33,6 +33,10 @@
                  description="How many days of metrics to retain locally.">
             <f:number default="365"/>
         </f:entry>
+        <f:entry title="Build History Import (days)" field="historyImportDays"
+                 description="How much existing build history to import once, when the plugin is first installed. Capped at the retention window.">
+            <f:number default="30"/>
+        </f:entry>
         <f:entry title="Dashboard Top N" field="dashboardTopN"
                  description="Number of pipelines to show in each ranking.">
             <f:number default="10"/>

@@ -96,6 +96,9 @@ Navigate to **Manage Jenkins > System** and scroll to the **Pipeline DORA Metric
 - **Production Folders:** Comma-separated Jenkins folder paths (e.g., `production,deploy/prod`)
 - **Production Branch Pattern:** Regex for branches that count as production (e.g., `main|master|release/.*`)
 
+**Build History Import:**
+- **Build History Import (days):** How much existing build history to import once, the first time the plugin runs. Default: `30`. Capped at the retention window, so it never imports builds the next cleanup would delete. Set it before the first import runs, since the import only happens once.
+
 **DORA Thresholds:** Customize the Elite/High/Medium/Low band boundaries for each metric to match your team's standards.
 
 ## Architecture

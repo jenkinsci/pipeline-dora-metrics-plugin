@@ -29,6 +29,9 @@ public class DoraGlobalConfiguration extends GlobalConfiguration {
     private boolean trackAllBranches = true;
     private boolean ignoreDisabledPipelines = false;
     private int retentionDays = 365;
+    private int historyImportDays = 30;
+    /** Set once the first import has run, so a restart does not scan again. */
+    private boolean historyImportDone = false;
     private int dashboardTopN = 10;
 
     // External storage export
@@ -78,6 +81,7 @@ public class DoraGlobalConfiguration extends GlobalConfiguration {
         this.trackAllBranches = json.optBoolean("trackAllBranches", true);
         this.ignoreDisabledPipelines = json.optBoolean("ignoreDisabledPipelines", false);
         this.retentionDays = Math.max(1, json.optInt("retentionDays", 365));
+        this.historyImportDays = Math.max(1, json.optInt("historyImportDays", 30));
         this.dashboardTopN = Math.max(1, json.optInt("dashboardTopN", 10));
 
         this.exportEnabled = json.optBoolean("exportEnabled", false);
@@ -250,6 +254,12 @@ public class DoraGlobalConfiguration extends GlobalConfiguration {
 
     public int getRetentionDays() { return retentionDays; }
     public void setRetentionDays(int v) { this.retentionDays = v; }
+
+    public int getHistoryImportDays() { return historyImportDays; }
+    public void setHistoryImportDays(int v) { this.historyImportDays = Math.max(1, v); }
+
+    public boolean isHistoryImportDone() { return historyImportDone; }
+    public void setHistoryImportDone(boolean v) { this.historyImportDone = v; save(); }
 
     public int getDashboardTopN() { return dashboardTopN; }
     public void setDashboardTopN(int v) { this.dashboardTopN = v; }

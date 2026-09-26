@@ -44,6 +44,23 @@ public class DoraGlobalConfigurationTest {
     }
 
     @Test
+    public void historyImportDaysRoundTrip() throws Exception {
+        // Submit the real Manage Jenkins > System form, so the jelly field and configure() are both exercised.
+        config.setHistoryImportDays(14);
+        j.configRoundtrip();
+        assertEquals(14, DoraGlobalConfiguration.get().getHistoryImportDays());
+    }
+
+    @Test
+    public void historyImportDoneIsNotResetByTheForm() throws Exception {
+        // The flag is not on the form. A later save of the configuration page must not
+        // clear it, or the import would run again on every restart after any config change.
+        config.setHistoryImportDone(true);
+        j.configRoundtrip();
+        assertTrue(DoraGlobalConfiguration.get().isHistoryImportDone());
+    }
+
+    @Test
     public void shouldTrackJobDefaultMatchesAll() {
         assertTrue(config.shouldTrackJob("any-job"));
         assertTrue(config.shouldTrackJob("production/api"));
