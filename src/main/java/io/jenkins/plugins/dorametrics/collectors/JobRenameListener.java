@@ -17,6 +17,22 @@ public class JobRenameListener extends ItemListener {
 
     private static final Logger LOGGER = Logger.getLogger(JobRenameListener.class.getName());
 
+    /**
+     * Rows can still be stored under this name from an earlier job: deleted before
+     * the detach existed, deleted while the plugin was off, or detached by a write
+     * that failed. They must not become the new job's history. Copies arrive here
+     * too, through {@link ItemListener#onCopied}, and so do branch jobs a
+     * multibranch project creates.
+     */
+    @Override
+    public void onCreated(Item item) {
+        try {
+            MetricsStore.getInstance().detachDeletedJob(item.getFullName(), System.currentTimeMillis());
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Failed to detach earlier metrics stored under: " + item.getFullName(), e);
+        }
+    }
+
     @Override
     public void onDeleted(Item item) {
         try {

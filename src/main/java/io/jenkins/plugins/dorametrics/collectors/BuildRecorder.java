@@ -1,9 +1,13 @@
 package io.jenkins.plugins.dorametrics.collectors;
 
 import hudson.model.Cause;
+import hudson.model.Job;
 import hudson.model.Result;
 import hudson.model.Run;
 import hudson.scm.ChangeLogSet;
+import hudson.security.ACL;
+import hudson.security.ACLContext;
+import jenkins.model.Jenkins;
 import jenkins.scm.RunWithSCM;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
@@ -56,6 +60,11 @@ final class BuildRecorder {
         String triggerType = getTriggerType(run);
         String branch = getBranch(run);
 
+        if (!isStillNamed(run.getParent(), jobName)) {
+            // the job was deleted or renamed since; its old name may belong to another job now
+            LOGGER.fine("Not recording " + run.getFullDisplayName() + ", " + jobName + " is no longer this job");
+            return;
+        }
         long buildId = store.insertBuild(jobName, buildNumber, timestamp, durationMs, result, triggerType, branch);
         if (buildId < 0) return;
 
@@ -67,6 +76,13 @@ final class BuildRecorder {
 
         LOGGER.fine("Collected metrics for " + jobName + "#" + buildNumber
                 + " (" + result + ", " + durationMs + "ms)");
+    }
+
+    /** Whether the name still resolves to this exact job, looked up as SYSTEM. */
+    static boolean isStillNamed(Job<?, ?> job, String name) {
+        try (ACLContext ignored = ACL.as2(ACL.SYSTEM2)) {
+            return Jenkins.get().getItemByFullName(name, Job.class) == job;
+        }
     }
 
     private static void collectCommitData(Run<?, ?> run, long buildId, MetricsStore store) {

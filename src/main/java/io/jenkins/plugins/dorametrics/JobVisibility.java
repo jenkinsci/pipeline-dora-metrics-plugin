@@ -1,5 +1,7 @@
 package io.jenkins.plugins.dorametrics;
 
+import hudson.model.Item;
+import hudson.model.Job;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import jenkins.model.Jenkins;
 import org.kohsuke.stapler.Stapler;
@@ -29,7 +31,8 @@ public final class JobVisibility {
      * see everything, including jobs that no longer exist. Everyone else needs
      * Item/Read on a job that still exists, so a missing job and a job the user
      * may not read look the same. {@code getItemByFullName} already returns null
-     * for a job the user may not read.
+     * for a job the user may not read. It also matches names case-insensitively,
+     * so the job it finds has to carry exactly the recorded name.
      */
     public static boolean canRead(String jobFullName) {
         if (jobFullName == null) {
@@ -43,11 +46,16 @@ public final class JobVisibility {
             return true;
         }
         try {
-            return jenkins.getItemByFullName(jobFullName) != null;
+            return isRecordedJob(jenkins.getItemByFullName(jobFullName), jobFullName);
         } catch (AccessDeniedException e) {
             // Item/Discover without Item/Read
             return false;
         }
+    }
+
+    /** True when the item found for a recorded name is a job with exactly that name. */
+    public static boolean isRecordedJob(Item item, String recordedName) {
+        return item instanceof Job && recordedName.equals(item.getFullName());
     }
 
     /**

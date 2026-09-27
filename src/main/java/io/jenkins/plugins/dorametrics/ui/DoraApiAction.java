@@ -207,7 +207,7 @@ public class DoraApiAction implements RootAction {
     /** A ranking row links to the job, so the job has to exist and be readable. */
     static boolean isVisibleItem(Jenkins jenkins, String jobName) {
         try {
-            return jenkins.getItemByFullName(jobName) != null;
+            return JobVisibility.isRecordedJob(jenkins.getItemByFullName(jobName), jobName);
         } catch (org.springframework.security.access.AccessDeniedException e) {
             return false;
         }

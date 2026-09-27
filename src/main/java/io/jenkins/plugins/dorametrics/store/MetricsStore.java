@@ -721,14 +721,35 @@ public class MetricsStore {
                 .replace("\\.", ".");
     }
 
+    /**
+     * Moves a job's records to its new name. Rows already stored under the new name
+     * belong to a job that is gone, since the name was free until now, so they are
+     * detached first, in the same transaction, instead of being merged into this
+     * job's history or making the rename fail on the unique key.
+     */
     public void renameJob(String oldName, String newName) {
-        String sql = "UPDATE builds SET job_name = ? WHERE job_name = ?";
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, newName);
-            ps.setString(2, oldName);
-            int updated = ps.executeUpdate();
-            LOGGER.fine("Renamed " + updated + " build records from " + oldName + " to " + newName);
+        long now = System.currentTimeMillis();
+        try {
+            int moved = writeRetryingWhenBusy(conn -> {
+                conn.setAutoCommit(false);
+                try (PreparedStatement detach = conn.prepareStatement(
+                             "UPDATE builds SET job_name = job_name || ? WHERE job_name = ?");
+                     PreparedStatement rename = conn.prepareStatement(
+                             "UPDATE builds SET job_name = ? WHERE job_name = ?")) {
+                    detach.setString(1, DELETED_MARKER + now);
+                    detach.setString(2, newName);
+                    detach.executeUpdate();
+                    rename.setString(1, newName);
+                    rename.setString(2, oldName);
+                    int updated = rename.executeUpdate();
+                    conn.commit();
+                    return updated;
+                } catch (SQLException e) {
+                    conn.rollback();
+                    throw e;
+                }
+            });
+            LOGGER.fine("Renamed " + moved + " build records from " + oldName + " to " + newName);
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING, "Failed to rename job: " + oldName + " -> " + newName, e);
         }
@@ -747,17 +768,57 @@ public class MetricsStore {
         String sql = "UPDATE builds SET job_name = job_name || ? "
                 + "WHERE job_name = ? OR substr(job_name, 1, ?) = ?";
         String prefix = fullName + "/";
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, DELETED_MARKER + deletedAtMs);
-            ps.setString(2, fullName);
-            ps.setInt(3, prefix.length());
-            ps.setString(4, prefix);
-            int updated = ps.executeUpdate();
+        try {
+            int updated = writeRetryingWhenBusy(conn -> {
+                try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                    ps.setString(1, DELETED_MARKER + deletedAtMs);
+                    ps.setString(2, fullName);
+                    ps.setInt(3, prefix.length());
+                    ps.setString(4, prefix);
+                    return ps.executeUpdate();
+                }
+            });
             LOGGER.fine("Detached " + updated + " build records of deleted job " + fullName);
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING, "Failed to detach records of deleted job: " + fullName, e);
         }
+    }
+
+    private static final int BUSY_ATTEMPTS = 3;
+
+    @FunctionalInterface
+    private interface Write {
+        int run(Connection conn) throws SQLException;
+    }
+
+    /**
+     * Runs a write, trying again when another writer kept the database locked for
+     * longer than busy_timeout. Used for the writes that keep a job's history tied
+     * to the right name, where giving up leaves the history under a stale name.
+     */
+    private int writeRetryingWhenBusy(Write write) throws SQLException {
+        for (int attempt = 1; ; attempt++) {
+            try (Connection conn = getConnection()) {
+                return write.run(conn);
+            } catch (SQLException e) {
+                if (attempt >= BUSY_ATTEMPTS || !isBusy(e)) {
+                    throw e;
+                }
+                LOGGER.fine("Database busy, trying again (" + attempt + "/" + BUSY_ATTEMPTS + ")");
+                try {
+                    Thread.sleep(250L * attempt);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
+        }
+    }
+
+    private static boolean isBusy(SQLException e) {
+        return e instanceof org.sqlite.SQLiteException
+                && (((org.sqlite.SQLiteException) e).getResultCode().code & 0xFF)
+                        == org.sqlite.SQLiteErrorCode.SQLITE_BUSY.code;
     }
 
     // === Maintenance ===
