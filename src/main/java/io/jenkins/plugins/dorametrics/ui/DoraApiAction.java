@@ -186,7 +186,8 @@ public class DoraApiAction implements RootAction {
         if (value.length() > 0 && "=+-@\t\r".indexOf(value.charAt(0)) >= 0) {
             value = "'" + value;
         }
-        if (value.contains(",") || value.contains("\"") || value.contains("\n") || value.contains("\r")) {
+        // A semicolon is a separator too for spreadsheets in many locales
+        if (value.contains(",") || value.contains(";") || value.contains("\"") || value.contains("\n") || value.contains("\r")) {
             return "\"" + value.replace("\"", "\"\"") + "\"";
         }
         return value;
