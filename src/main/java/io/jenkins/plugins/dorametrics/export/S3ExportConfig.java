@@ -18,7 +18,6 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.IOException;
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
@@ -37,7 +36,6 @@ import java.util.logging.Logger;
 public class S3ExportConfig extends ExportStorageConfig {
 
     private static final Logger LOGGER = Logger.getLogger(S3ExportConfig.class.getName());
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
 
     private String endpoint;
     private String bucket;
@@ -119,8 +117,7 @@ public class S3ExportConfig extends ExportStorageConfig {
         String authorization = algorithm + " Credential=" + accessKey + "/" + credentialScope
                 + ", SignedHeaders=" + signedHeaders + ", Signature=" + signature;
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(url))
+        HttpRequest request = ExportHttp.request(URI.create(url))
                 .PUT(HttpRequest.BodyPublishers.ofByteArray(payload))
                 .header("x-amz-date", amzDate)
                 .header("x-amz-content-sha256", payloadHash)
@@ -128,7 +125,7 @@ public class S3ExportConfig extends ExportStorageConfig {
                 .header("Content-Type", "application/json")
                 .build();
 
-        HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = ExportHttp.client().send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() >= 200 && response.statusCode() < 300) {
             LOGGER.fine("S3 upload success: " + key);
         } else {

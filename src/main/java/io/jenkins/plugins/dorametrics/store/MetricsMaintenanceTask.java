@@ -9,16 +9,15 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Periodic task that runs every hour to check if export or cleanup is needed.
- * Export interval is configurable (default: every 24 hours).
- * Cleanup removes data older than retentionDays.
+ * Periodic task that runs every hour and removes data older than retentionDays.
+ * Exports run in {@link MetricsExportTask}, so an export endpoint that is slow or down
+ * never holds this one up.
  */
 @Extension
 public class MetricsMaintenanceTask extends AsyncPeriodicWork {
 
     private static final Logger LOGGER = Logger.getLogger(MetricsMaintenanceTask.class.getName());
     private static final long HOUR_MS = 3600_000;
-    private long lastExportTime = 0;
 
     public MetricsMaintenanceTask() {
         super("DORA Metrics Maintenance");
@@ -39,18 +38,6 @@ public class MetricsMaintenanceTask extends AsyncPeriodicWork {
             long retainAfter = System.currentTimeMillis()
                     - ((long) config.getRetentionDays() * 86400_000);
             MetricsStore.getInstance().cleanup(retainAfter);
-
-            // Export if enabled and interval has elapsed
-            if (config.isExportEnabled()) {
-                int intervalHours = Math.max(1, config.getExportIntervalHours());
-                long intervalMs = (long) intervalHours * HOUR_MS;
-
-                if (System.currentTimeMillis() - lastExportTime >= intervalMs) {
-                    MetricsExporter.exportDailySnapshot();
-                    lastExportTime = System.currentTimeMillis();
-                    LOGGER.info("DORA metrics export completed");
-                }
-            }
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "DORA metrics maintenance failed", e);
         }

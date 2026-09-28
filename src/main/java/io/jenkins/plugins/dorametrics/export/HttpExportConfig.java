@@ -17,7 +17,6 @@ import org.kohsuke.stapler.QueryParameter;
 
 import java.io.IOException;
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
@@ -32,7 +31,6 @@ import java.util.logging.Logger;
 public class HttpExportConfig extends ExportStorageConfig {
 
     private static final Logger LOGGER = Logger.getLogger(HttpExportConfig.class.getName());
-    private static final HttpClient HTTP = HttpClient.newHttpClient();
 
     private String url;
     private String credentialsId;
@@ -58,8 +56,7 @@ public class HttpExportConfig extends ExportStorageConfig {
     public void upload(String data, String fileName) throws IOException, InterruptedException {
         String authHeader = resolveAuth();
 
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(url))
+        HttpRequest.Builder builder = ExportHttp.request(URI.create(url))
                 .POST(HttpRequest.BodyPublishers.ofString(data))
                 .header("Content-Type", "application/json");
 
@@ -67,7 +64,7 @@ public class HttpExportConfig extends ExportStorageConfig {
             builder.header("Authorization", authHeader);
         }
 
-        HttpResponse<String> response = HTTP.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = ExportHttp.client().send(builder.build(), HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() >= 200 && response.statusCode() < 300) {
             LOGGER.fine("HTTP export success");
         } else {
