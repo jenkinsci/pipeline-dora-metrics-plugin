@@ -151,6 +151,39 @@ public class DoraGlobalConfiguration extends GlobalConfiguration {
 
     @POST
     @SuppressWarnings("lgtm[jenkins/no-permission-check]")
+    public FormValidation doCheckProductionJobPattern(@QueryParameter String value) {
+        return validateRegexField(value, ".*");
+    }
+
+    @POST
+    @SuppressWarnings("lgtm[jenkins/no-permission-check]")
+    public FormValidation doCheckExcludedJobPattern(@QueryParameter String value) {
+        return validateRegexField(value, "nothing");
+    }
+
+    @POST
+    @SuppressWarnings("lgtm[jenkins/no-permission-check]")
+    public FormValidation doCheckProductionBranchPattern(@QueryParameter String value) {
+        return validateRegexField(value, "main|master");
+    }
+
+    /**
+     * Saving a pattern that is not a valid regex keeps the default instead, so say it
+     * before the save rather than leave the change to vanish.
+     */
+    private static FormValidation validateRegexField(String value, String fallback) {
+        if (value == null || value.isEmpty()) return FormValidation.ok();
+        try {
+            Pattern.compile(value);
+            return FormValidation.ok();
+        } catch (PatternSyntaxException e) {
+            return FormValidation.error("Not a valid regular expression, " + fallback
+                    + " would be used instead: " + e.getDescription());
+        }
+    }
+
+    @POST
+    @SuppressWarnings("lgtm[jenkins/no-permission-check]")
     public FormValidation doCheckRetentionDays(@QueryParameter String value) {
         return validatePositiveInt(value, "Retention days");
     }
