@@ -1,6 +1,16 @@
 unclassified:
   doraGlobalConfiguration:
-    productionJobPattern: ".*"
-    excludedJobPattern: ""
-    retentionDays: 365
-    dashboardTopN: 10
+    productionJobPattern: ".*-prod"
+    excludedJobPattern: ".*-scratch"
+    productionFolders: "deploy"
+    productionBranchPattern: "main|release/.*"
+    trackAllBranches: false
+    ignoreDisabledPipelines: true
+    retentionDays: 180
+    dashboardTopN: 15
+    # Decimal thresholds go in quotes, as the JCasC export writes them: an unquoted
+    # decimal such as 2.0 is skipped without an error.
+    dfEliteThreshold: "2.0"
+    ltEliteSeconds: 43200
+    mttrHighSeconds: 43200
+    cfrMediumPercent: "20.0"
