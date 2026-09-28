@@ -256,6 +256,46 @@ public class MetricsStore {
         return records;
     }
 
+    /**
+     * For every job whose failures had not been fixed yet at {@code beforeMs}, when its run of
+     * failures began: the earliest FAILURE after that job's last SUCCESS before that moment.
+     * Lets a recovery inside a window be measured from a failure that started before it.
+     */
+    public java.util.Map<String, Long> failureStreaksOpenAt(long beforeMs, Set<String> excludedJobs,
+                                                             String branchPattern) {
+        java.util.Map<String, Long> starts = new java.util.HashMap<>();
+        List<String> excluded = usableNames(excludedJobs);
+        String sql = "SELECT f.job_name, MIN(f.timestamp) FROM builds f"
+                + " WHERE f.timestamp < ? AND f.result = 'FAILURE'"
+                + branchCondition("f.branch", branchPattern)
+                + " AND NOT EXISTS (SELECT 1 FROM builds s WHERE s.job_name = f.job_name"
+                + " AND s.result = 'SUCCESS' AND s.timestamp > f.timestamp AND s.timestamp < ?"
+                + branchCondition("s.branch", branchPattern) + ")"
+                + notIn("f.job_name", excluded)
+                + " GROUP BY f.job_name";
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            int index = 1;
+            ps.setLong(index++, beforeMs);
+            if (branchPattern != null) {
+                ps.setString(index++, branchPattern);
+            }
+            ps.setLong(index++, beforeMs);
+            if (branchPattern != null) {
+                ps.setString(index++, branchPattern);
+            }
+            bindExcluded(ps, index, excluded);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    starts.put(rs.getString(1), rs.getLong(2));
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "Failed to query open failure streaks", e);
+        }
+        return starts;
+    }
+
     public List<String> getAllJobNames() {
         List<String> names = new ArrayList<>();
         String sql = "SELECT DISTINCT job_name FROM builds ORDER BY job_name";

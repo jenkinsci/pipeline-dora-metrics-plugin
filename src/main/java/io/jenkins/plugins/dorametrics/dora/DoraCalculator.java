@@ -100,8 +100,9 @@ public class DoraCalculator {
     }
 
     /**
-     * MTTR: avg time from failure to next success per job.
-     * Still uses row-level scan (no simple SQL aggregate for this).
+     * MTTR: average time from the first failure of a run of failures until the build that
+     * fixed it finished. A run of failures that began before the window counts when its fix
+     * lands inside the window. One that is still open is not counted: it has no end yet.
      */
     public DoraMetric meanTimeToRestore(long fromMs, long toMs, String jobPattern) {
         List<BuildRecord> builds = store.getAllBuilds(fromMs, toMs, excludedJobs);
@@ -119,16 +120,18 @@ public class DoraCalculator {
 
         Map<String, List<BuildRecord>> byJob = builds.stream()
                 .collect(Collectors.groupingBy(b -> b.jobName));
+        Map<String, Long> openAtStart = store.failureStreaksOpenAt(fromMs, excludedJobs, branchPattern);
 
         List<Long> restoreTimes = new ArrayList<>();
-        for (List<BuildRecord> jobBuilds : byJob.values()) {
+        for (Map.Entry<String, List<BuildRecord>> entry : byJob.entrySet()) {
+            List<BuildRecord> jobBuilds = entry.getValue();
             jobBuilds.sort(Comparator.comparingLong(b -> b.timestamp));
-            Long failureStart = null;
+            Long failureStart = openAtStart.get(entry.getKey());
             for (BuildRecord build : jobBuilds) {
                 if (build.isFailure() && failureStart == null) {
                     failureStart = build.timestamp;
                 } else if (build.isSuccess() && failureStart != null) {
-                    restoreTimes.add(build.timestamp - failureStart);
+                    restoreTimes.add(build.timestamp + build.durationMs - failureStart);
                     failureStart = null;
                 }
             }
