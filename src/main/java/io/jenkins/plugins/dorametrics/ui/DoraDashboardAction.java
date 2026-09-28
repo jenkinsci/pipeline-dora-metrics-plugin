@@ -11,6 +11,9 @@ import io.jenkins.plugins.dorametrics.rankings.PipelineRanker.RankedStage;
 import jenkins.model.Jenkins;
 
 import java.util.List;
+import java.util.function.Supplier;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
@@ -31,27 +34,39 @@ public class DoraDashboardAction implements RootAction {
 
     // === Dashboard data for Jelly ===
 
-    private static final DoraMetric EMPTY_METRIC =
-            new DoraMetric("N/A", "N/A", DoraCalculator.DoraBand.LOW, 0);
+    private static final Logger LOGGER = Logger.getLogger(DoraDashboardAction.class.getName());
 
     public DoraMetric getDeploymentFrequency() {
-        try { return new DoraCalculator().deploymentFrequency(thirtyDaysAgo(), now(), getPattern()); }
-        catch (Exception e) { return EMPTY_METRIC; }
+        return orNotAvailable("Deployment Frequency",
+                () -> new DoraCalculator().deploymentFrequency(thirtyDaysAgo(), now(), getPattern()));
     }
 
     public DoraMetric getLeadTime() {
-        try { return new DoraCalculator().leadTimeForChanges(thirtyDaysAgo(), now(), getPattern()); }
-        catch (Exception e) { return EMPTY_METRIC; }
+        return orNotAvailable("Lead Time for Changes",
+                () -> new DoraCalculator().leadTimeForChanges(thirtyDaysAgo(), now(), getPattern()));
     }
 
     public DoraMetric getMttr() {
-        try { return new DoraCalculator().meanTimeToRestore(thirtyDaysAgo(), now(), getPattern()); }
-        catch (Exception e) { return EMPTY_METRIC; }
+        return orNotAvailable("Mean Time to Restore",
+                () -> new DoraCalculator().meanTimeToRestore(thirtyDaysAgo(), now(), getPattern()));
     }
 
     public DoraMetric getChangeFailureRate() {
-        try { return new DoraCalculator().changeFailureRate(thirtyDaysAgo(), now(), getPattern()); }
-        catch (Exception e) { return EMPTY_METRIC; }
+        return orNotAvailable("Change Failure Rate",
+                () -> new DoraCalculator().changeFailureRate(thirtyDaysAgo(), now(), getPattern()));
+    }
+
+    /**
+     * The metric, or N/A when it cannot be worked out. The page still renders, and the reason
+     * goes to the log rather than nowhere.
+     */
+    public static DoraMetric orNotAvailable(String name, Supplier<DoraMetric> metric) {
+        try {
+            return metric.get();
+        } catch (RuntimeException e) {
+            LOGGER.log(Level.WARNING, "Could not work out " + name + " for the dashboard", e);
+            return new DoraMetric(name, "N/A", DoraCalculator.DoraBand.NONE, 0);
+        }
     }
 
     public List<RankedPipeline> getSlowestPipelines() {

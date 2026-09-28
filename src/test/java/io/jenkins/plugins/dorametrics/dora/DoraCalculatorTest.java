@@ -124,7 +124,7 @@ public class DoraCalculatorTest {
 
         DoraCalculator.DoraMetric mttr = calc.meanTimeToRestore(now - 1000, now + 1000, "mttr-ok");
         assertEquals("N/A", mttr.displayValue);
-        assertEquals(DoraCalculator.DoraBand.ELITE, mttr.band); // No failures = Elite
+        assertEquals(DoraCalculator.DoraBand.NONE, mttr.band); // no failures, nothing to rate
     }
 
     @Test

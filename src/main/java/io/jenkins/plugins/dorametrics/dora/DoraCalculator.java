@@ -9,6 +9,7 @@ import io.jenkins.plugins.dorametrics.util.DurationFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -23,7 +24,9 @@ public class DoraCalculator {
         ELITE("Elite", "#1a7f37"),
         HIGH("High", "#2da44e"),
         MEDIUM("Medium", "#bf8700"),
-        LOW("Low", "#cf222e");
+        LOW("Low", "#cf222e"),
+        /** Nothing to rate yet, such as no deployments or no failures in the period. */
+        NONE("N/A", "#6e7781");
 
         public final String label;
         public final String color;
@@ -72,8 +75,7 @@ public class DoraCalculator {
                 : frequency >= medium ? DoraBand.MEDIUM
                 : DoraBand.LOW;
 
-        return new DoraMetric("Deployment Frequency",
-                String.format("%.1f/day", frequency), band, frequency);
+        return new DoraMetric("Deployment Frequency", frequencyText(frequency), band, frequency);
     }
 
     /**
@@ -83,7 +85,7 @@ public class DoraCalculator {
         double avgMs = store.avgLeadTimeMs(fromMs, toMs, jobPattern, excludedJobs, branchPattern());
 
         if (avgMs <= 0) {
-            return new DoraMetric("Lead Time for Changes", "N/A", DoraBand.LOW, 0);
+            return new DoraMetric("Lead Time for Changes", "N/A", DoraBand.NONE, 0);
         }
 
         double ltElite = config != null ? config.getLtEliteSeconds() * 1000 : 86400L * 1000;
@@ -138,7 +140,7 @@ public class DoraCalculator {
         }
 
         if (restoreTimes.isEmpty()) {
-            return new DoraMetric("Mean Time to Restore", "N/A", DoraBand.ELITE, 0);
+            return new DoraMetric("Mean Time to Restore", "N/A", DoraBand.NONE, 0);
         }
 
         double avgMs = restoreTimes.stream().mapToLong(Long::longValue).average().orElse(0);
@@ -163,7 +165,7 @@ public class DoraCalculator {
     public DoraMetric changeFailureRate(long fromMs, long toMs, String jobPattern) {
         long total = store.countDeployments(fromMs, toMs, jobPattern, excludedJobs, branchPattern());
         if (total == 0) {
-            return new DoraMetric("Change Failure Rate", "N/A", DoraBand.LOW, 0);
+            return new DoraMetric("Change Failure Rate", "N/A", DoraBand.NONE, 0);
         }
 
         long failures = store.countFailedBuilds(fromMs, toMs, jobPattern, excludedJobs, branchPattern());
@@ -179,7 +181,21 @@ public class DoraCalculator {
                 : DoraBand.LOW;
 
         return new DoraMetric("Change Failure Rate",
-                String.format("%.1f%%", rate), band, rate);
+                String.format(Locale.ROOT, "%.1f%%", rate), band, rate);
+    }
+
+    /**
+     * Deploys per day, per week or per month, whichever keeps the number at one or more, so a
+     * team deploying monthly does not read "0.0/day" next to a Medium band.
+     */
+    static String frequencyText(double perDay) {
+        if (perDay >= 1 || perDay == 0) {
+            return String.format(Locale.ROOT, "%.1f/day", perDay);
+        }
+        if (perDay * 7 >= 1) {
+            return String.format(Locale.ROOT, "%.1f/week", perDay * 7);
+        }
+        return String.format(Locale.ROOT, "%.1f/month", perDay * 30);
     }
 
     /**

@@ -20,6 +20,7 @@ import org.kohsuke.stapler.verb.GET;
 
 import java.util.Calendar;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
@@ -101,7 +102,7 @@ public class DoraApiAction implements RootAction {
                 .collect(Collectors.groupingBy(b -> {
                     Calendar cal = Calendar.getInstance();
                     cal.setTimeInMillis(b.timestamp);
-                    return String.format("%d-%02d-%02d",
+                    return String.format(Locale.ROOT, "%d-%02d-%02d",
                             cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH));
                 }));
 
@@ -140,7 +141,7 @@ public class DoraApiAction implements RootAction {
             StringBuilder csv = new StringBuilder();
             csv.append("job_name,build_number,timestamp,duration_ms,result,trigger_type,branch\n");
             for (BuildRecord b : builds) {
-                csv.append(String.format("%s,%d,%d,%d,%s,%s,%s\n",
+                csv.append(String.format(Locale.ROOT, "%s,%d,%d,%d,%s,%s,%s\n",
                         escapeCsv(b.jobName), b.buildNumber, b.timestamp, b.durationMs,
                         escapeCsv(b.result), escapeCsv(b.triggerType),
                         escapeCsv(b.branch != null ? b.branch : "")));

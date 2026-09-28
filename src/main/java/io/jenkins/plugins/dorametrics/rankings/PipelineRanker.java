@@ -9,6 +9,7 @@ import io.jenkins.plugins.dorametrics.util.DurationFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -53,7 +54,7 @@ public class PipelineRanker {
         for (MetricsStore.JobStats s : stats) {
             double failureRate = s.buildCount > 0 ? (double) s.failureCount / s.buildCount * 100 : 0;
             ranked.add(new RankedPipeline(s.jobName, failureRate,
-                    String.format("%.1f%%", failureRate), s.buildCount));
+                    String.format(Locale.ROOT, "%.1f%%", failureRate), s.buildCount));
         }
         ranked.sort((a, b) -> Double.compare(b.value, a.value));
         return ranked.stream().limit(limit).collect(Collectors.toList());
@@ -77,7 +78,7 @@ public class PipelineRanker {
             double improvement = ((previousAvg - currentAvg) / previousAvg) * 100;
             if (improvement <= 0) continue; // slower or unchanged is not an improvement
             ranked.add(new RankedPipeline(jobName, improvement,
-                    String.format("%+.1f%%", -improvement), current.get(jobName).size()));
+                    String.format(Locale.ROOT, "%+.1f%%", -improvement), current.get(jobName).size()));
         }
 
         ranked.sort((a, b) -> Double.compare(b.value, a.value));
@@ -107,7 +108,7 @@ public class PipelineRanker {
             double flakyScore = (double) transitions / (builds.size() - 1) * 100;
             if (transitions == 0) continue; // never flipped, so not flaky at all
             ranked.add(new RankedPipeline(entry.getKey(), flakyScore,
-                    String.format("%.0f%% transitions", flakyScore), builds.size()));
+                    String.format(Locale.ROOT, "%.0f%% transitions", flakyScore), builds.size()));
         }
 
         ranked.sort((a, b) -> Double.compare(b.value, a.value));
@@ -130,7 +131,7 @@ public class PipelineRanker {
         for (MetricsStore.StageStats s : stats) {
             double failureRate = s.totalRuns > 0 ? (double) s.failureCount / s.totalRuns * 100 : 0;
             ranked.add(new RankedStage(s.stageName, failureRate,
-                    String.format("%.1f%%", failureRate), s.totalRuns));
+                    String.format(Locale.ROOT, "%.1f%%", failureRate), s.totalRuns));
         }
         ranked.sort((a, b) -> Double.compare(b.value, a.value));
         return ranked.stream().limit(limit).collect(Collectors.toList());
