@@ -99,7 +99,10 @@ public class BranchSettingsTest {
 
     @Test
     public void theRecordedBranchKeepsItsPath() throws Exception {
+        // A build's environment starts from the controller's own, and a CI run of these tests
+        // has BRANCH_NAME set, which is read before GIT_BRANCH. Clear it for this build.
         EnvironmentVariablesNodeProperty env = new EnvironmentVariablesNodeProperty(
+                new EnvironmentVariablesNodeProperty.Entry("BRANCH_NAME", ""),
                 new EnvironmentVariablesNodeProperty.Entry("GIT_BRANCH", "origin/release/1.2"));
         j.jenkins.getGlobalNodeProperties().add(env);
         FreeStyleProject p = j.createFreeStyleProject("git-job");
