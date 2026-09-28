@@ -27,6 +27,8 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.TimeZone;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * S3-compatible export configuration and upload.
@@ -83,8 +85,8 @@ public class S3ExportConfig extends ExportStorageConfig {
             }
         }
 
-        String region = extractRegion(endpoint);
-        uploadS3(endpoint, bucket, fileName, data, accessKey, secretKey, region);
+        String base = endpointOrDefault(endpoint);
+        uploadS3(base, bucket, fileName, data, accessKey, secretKey, extractRegion(base));
     }
 
     private void uploadS3(String endpoint, String bucket, String key,
@@ -98,10 +100,14 @@ public class S3ExportConfig extends ExportStorageConfig {
         String amzDate = dateFormat.format(new Date());
         String dateStamp = amzDate.substring(0, 8);
 
-        String host = endpoint.replaceAll("https?://", "");
-        String url = endpoint + "/" + bucket + "/" + key;
+        // The signed host has to be exactly what goes out in the Host header: the endpoint's
+        // host and, when it names one, its port. Any path on the endpoint prefixes the object.
+        URI base = URI.create(endpoint);
+        String host = base.getRawAuthority();
+        String basePath = base.getRawPath() == null ? "" : base.getRawPath().replaceAll("/+$", "");
+        String canonicalUri = basePath + "/" + bucket + "/" + key;
+        String url = base.getScheme() + "://" + host + canonicalUri;
 
-        String canonicalUri = "/" + bucket + "/" + key;
         String canonicalQueryString = "";
         String canonicalHeaders = "host:" + host + "\n" + "x-amz-content-sha256:" + payloadHash + "\n" + "x-amz-date:" + amzDate + "\n";
         String signedHeaders = "host;x-amz-content-sha256;x-amz-date";
@@ -133,14 +139,51 @@ public class S3ExportConfig extends ExportStorageConfig {
         }
     }
 
+    /** AWS S3's global endpoint, used when none is configured. */
+    static final String AWS_DEFAULT_ENDPOINT = "https://s3.amazonaws.com";
+
+    private static final Pattern AWS_REGION = Pattern.compile(
+            "(?:.*\\.)?s3[.-](?:dualstack\\.)?([a-z0-9-]+)\\.amazonaws\\.com(?:\\.cn)?");
+    private static final Pattern SPACES_REGION = Pattern.compile("(?:.*\\.)?([a-z0-9-]+)\\.digitaloceanspaces\\.com");
+
+    /** The configured endpoint without trailing slashes, or AWS's when none is configured. */
+    static String endpointOrDefault(String endpoint) {
+        if (endpoint == null || endpoint.trim().isEmpty()) return AWS_DEFAULT_ENDPOINT;
+        return endpoint.trim().replaceAll("/+$", "");
+    }
+
+    /**
+     * The signing region for an endpoint. AWS names it in the host in several ways
+     * ({@code s3.eu-west-1}, {@code s3-eu-west-1}, {@code s3.dualstack.eu-west-1}, with or
+     * without a bucket in front), and its global endpoint is us-east-1. DigitalOcean Spaces
+     * puts it first, other S3-compatible services usually after {@code s3.}. Anything else,
+     * MinIO for instance, accepts us-east-1.
+     */
     static String extractRegion(String endpoint) {
-        if (endpoint == null || endpoint.isEmpty()) return "us-east-1";
-        String host = endpoint.replaceAll("https?://", "");
+        if (endpoint == null || endpoint.trim().isEmpty()) return "us-east-1";
+        String host = hostOf(endpoint);
+        if (host.endsWith(".amazonaws.com") || host.endsWith(".amazonaws.com.cn")) {
+            Matcher aws = AWS_REGION.matcher(host);
+            if (aws.matches() && !"external-1".equals(aws.group(1))) {
+                return aws.group(1);
+            }
+            return "us-east-1";
+        }
+        Matcher spaces = SPACES_REGION.matcher(host);
+        if (spaces.matches()) {
+            return spaces.group(1);
+        }
         String[] parts = host.split("\\.");
         if (parts.length >= 3 && parts[0].equals("s3")) {
             return parts[1];
         }
         return "us-east-1";
+    }
+
+    private static String hostOf(String endpoint) {
+        String withScheme = endpoint.trim().contains("://") ? endpoint.trim() : "https://" + endpoint.trim();
+        String host = URI.create(withScheme).getHost();
+        return host == null ? "" : host.toLowerCase(java.util.Locale.ROOT);
     }
 
     // AWS SigV4 helpers
