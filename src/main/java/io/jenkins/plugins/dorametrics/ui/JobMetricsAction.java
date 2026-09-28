@@ -124,8 +124,16 @@ public class JobMetricsAction implements Action {
         @Override
         public Class<Job> type() { return Job.class; }
 
+        /**
+         * Only jobs the settings track get the tab. For any other job nothing is recorded, and
+         * a page of zeros and N/A would read as if it were being measured.
+         */
         @Override
         public Collection<? extends Action> createFor(Job target) {
+            DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
+            if (config != null && !config.shouldTrackJob(target.getFullName())) {
+                return Collections.emptySet();
+            }
             return Collections.singleton(new JobMetricsAction(target));
         }
     }
