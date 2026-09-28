@@ -627,6 +627,17 @@ public class MetricsStore {
      */
     public double avgLeadTimeMs(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs,
                                 String branchPattern) {
+        List<long[]> leadTimes = leadTimes(fromMs, toMs, jobPattern, excludedJobs, branchPattern);
+        return leadTimes.stream().mapToLong(row -> row[1]).average().orElse(0);
+    }
+
+    /**
+     * The lead time of each successful build in the window, as {@code [build start, lead time]},
+     * worked out as {@link #avgLeadTimeMs(long, long, String, Set, String)} describes.
+     */
+    public List<long[]> leadTimes(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs,
+                                  String branchPattern) {
+        List<long[]> rows = new ArrayList<>();
         boolean filtered = jobPattern != null && !".*".equals(jobPattern);
         List<String> excluded = usableNames(excludedJobs);
         String sql = "WITH ordered AS ("
@@ -641,7 +652,7 @@ public class MetricsStore {
                 + " SELECT o.job_name, o.deployment, MIN(c.timestamp) AS first_commit"
                 + " FROM ordered o INNER JOIN commits c ON c.build_id = o.id"
                 + " WHERE c.timestamp > 0 GROUP BY o.job_name, o.deployment)"
-                + " SELECT AVG((d.timestamp + d.duration_ms) - f.first_commit) FROM ordered d"
+                + " SELECT d.timestamp, (d.timestamp + d.duration_ms) - f.first_commit FROM ordered d"
                 + " INNER JOIN first_commits f ON f.job_name = d.job_name AND f.deployment = d.deployment"
                 + " WHERE d.result = 'SUCCESS' AND d.timestamp BETWEEN ? AND ?"
                 + (filtered ? " AND d.job_name REGEXP ?" : "")
@@ -659,12 +670,14 @@ public class MetricsStore {
             }
             bindExcluded(ps, index, excluded);
             try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) return rs.getDouble(1);
+                while (rs.next()) {
+                    rows.add(new long[] {rs.getLong(1), rs.getLong(2)});
+                }
             }
         } catch (SQLException e) {
-            LOGGER.log(Level.FINE, "avgLeadTimeMs query failed", e);
+            LOGGER.log(Level.FINE, "lead time query failed", e);
         }
-        return 0;
+        return rows;
     }
 
     public List<JobStats> getJobStats(long fromMs, long toMs, int limit, String orderBy) {

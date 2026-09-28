@@ -6,6 +6,9 @@ import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import io.jenkins.plugins.dorametrics.store.MetricsStore.BuildRecord;
 import io.jenkins.plugins.dorametrics.util.DurationFormatter;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -107,37 +110,8 @@ public class DoraCalculator {
      * lands inside the window. One that is still open is not counted: it has no end yet.
      */
     public DoraMetric meanTimeToRestore(long fromMs, long toMs, String jobPattern) {
-        List<BuildRecord> builds = store.getAllBuilds(fromMs, toMs, excludedJobs);
-        if (!".*".equals(jobPattern) && jobPattern != null) {
-            builds = builds.stream()
-                    .filter(b -> b.jobName.matches(jobPattern))
-                    .collect(Collectors.toList());
-        }
-        String branchPattern = branchPattern();
-        if (branchPattern != null) {
-            builds = builds.stream()
-                    .filter(b -> MetricsStore.isOnBranch(b, branchPattern))
-                    .collect(Collectors.toList());
-        }
-
-        Map<String, List<BuildRecord>> byJob = builds.stream()
-                .collect(Collectors.groupingBy(b -> b.jobName));
-        Map<String, Long> openAtStart = store.failureStreaksOpenAt(fromMs, excludedJobs, branchPattern);
-
-        List<Long> restoreTimes = new ArrayList<>();
-        for (Map.Entry<String, List<BuildRecord>> entry : byJob.entrySet()) {
-            List<BuildRecord> jobBuilds = entry.getValue();
-            jobBuilds.sort(Comparator.comparingLong(b -> b.timestamp));
-            Long failureStart = openAtStart.get(entry.getKey());
-            for (BuildRecord build : jobBuilds) {
-                if (build.isFailure() && failureStart == null) {
-                    failureStart = build.timestamp;
-                } else if (build.isSuccess() && failureStart != null) {
-                    restoreTimes.add(build.timestamp + build.durationMs - failureStart);
-                    failureStart = null;
-                }
-            }
-        }
+        List<Long> restoreTimes = restores(fromMs, toMs, jobPattern).stream()
+                .map(r -> r[1]).collect(Collectors.toList());
 
         if (restoreTimes.isEmpty()) {
             return new DoraMetric("Mean Time to Restore", "N/A", DoraBand.NONE, 0);
@@ -182,6 +156,108 @@ public class DoraCalculator {
 
         return new DoraMetric("Change Failure Rate",
                 String.format(Locale.ROOT, "%.1f%%", rate), band, rate);
+    }
+
+    /**
+     * The builds in the window that the metrics look at: this calculator's exclusions, the job
+     * pattern, and the production branches when only those count.
+     */
+    private List<BuildRecord> buildsFor(long fromMs, long toMs, String jobPattern) {
+        List<BuildRecord> builds = store.getAllBuilds(fromMs, toMs, excludedJobs);
+        if (!".*".equals(jobPattern) && jobPattern != null) {
+            builds = builds.stream()
+                    .filter(b -> b.jobName.matches(jobPattern))
+                    .collect(Collectors.toList());
+        }
+        String branchPattern = branchPattern();
+        if (branchPattern != null) {
+            builds = builds.stream()
+                    .filter(b -> MetricsStore.isOnBranch(b, branchPattern))
+                    .collect(Collectors.toList());
+        }
+        return builds;
+    }
+
+    /**
+     * Every recovery in the window as {@code [start of the fixing build, time to restore]}: from
+     * the first failure of a run of failures until the build that fixed it finished.
+     */
+    private List<long[]> restores(long fromMs, long toMs, String jobPattern) {
+        Map<String, List<BuildRecord>> byJob = buildsFor(fromMs, toMs, jobPattern).stream()
+                .collect(Collectors.groupingBy(b -> b.jobName));
+        Map<String, Long> openAtStart = store.failureStreaksOpenAt(fromMs, excludedJobs, branchPattern());
+
+        List<long[]> restores = new ArrayList<>();
+        for (Map.Entry<String, List<BuildRecord>> entry : byJob.entrySet()) {
+            List<BuildRecord> jobBuilds = entry.getValue();
+            jobBuilds.sort(Comparator.comparingLong(b -> b.timestamp));
+            Long failureStart = openAtStart.get(entry.getKey());
+            for (BuildRecord build : jobBuilds) {
+                if (build.isFailure() && failureStart == null) {
+                    failureStart = build.timestamp;
+                } else if (build.isSuccess() && failureStart != null) {
+                    restores.add(new long[] {build.timestamp, build.timestamp + build.durationMs - failureStart});
+                    failureStart = null;
+                }
+            }
+        }
+        return restores;
+    }
+
+    /** The four metrics for one day, as the cards show them for a whole period. */
+    public static final class Day {
+        public int deployments;
+        public int deploymentAttempts;
+        public int failures;
+        private long leadTimeTotal;
+        private int leadTimeCount;
+        private long restoreTotal;
+        private int restoreCount;
+
+        /** Failed deployments as a percentage of deployments, or null with none that day. */
+        public Double changeFailureRate() {
+            return deploymentAttempts == 0 ? null : failures * 100.0 / deploymentAttempts;
+        }
+
+        public Long leadTimeMs() {
+            return leadTimeCount == 0 ? null : leadTimeTotal / leadTimeCount;
+        }
+
+        public Long restoreTimeMs() {
+            return restoreCount == 0 ? null : restoreTotal / restoreCount;
+        }
+    }
+
+    /**
+     * The four metrics day by day across the window, every day present, each build counted on
+     * the day it started in {@code zone}, with the same filters as the whole-period metrics.
+     */
+    public java.util.SortedMap<LocalDate, Day> dailyMetrics(long fromMs, long toMs, String jobPattern, ZoneId zone) {
+        java.util.SortedMap<LocalDate, Day> days = new java.util.TreeMap<>();
+        LocalDate last = Instant.ofEpochMilli(toMs).atZone(zone).toLocalDate();
+        for (LocalDate d = Instant.ofEpochMilli(fromMs).atZone(zone).toLocalDate(); !d.isAfter(last); d = d.plusDays(1)) {
+            days.put(d, new Day());
+        }
+        for (BuildRecord b : buildsFor(fromMs, toMs, jobPattern)) {
+            Day day = days.get(Instant.ofEpochMilli(b.timestamp).atZone(zone).toLocalDate());
+            if (day == null) continue;
+            if (b.isSuccess()) day.deployments++;
+            if (b.isFailure()) day.failures++;
+            if (b.isSuccess() || b.isFailure() || "UNSTABLE".equals(b.result)) day.deploymentAttempts++;
+        }
+        for (long[] lead : store.leadTimes(fromMs, toMs, jobPattern, excludedJobs, branchPattern())) {
+            Day day = days.get(Instant.ofEpochMilli(lead[0]).atZone(zone).toLocalDate());
+            if (day == null) continue;
+            day.leadTimeTotal += lead[1];
+            day.leadTimeCount++;
+        }
+        for (long[] restore : restores(fromMs, toMs, jobPattern)) {
+            Day day = days.get(Instant.ofEpochMilli(restore[0]).atZone(zone).toLocalDate());
+            if (day == null) continue;
+            day.restoreTotal += restore[1];
+            day.restoreCount++;
+        }
+        return days;
     }
 
     /**
