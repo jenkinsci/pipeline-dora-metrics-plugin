@@ -84,19 +84,37 @@ public final class JobVisibility {
     }
 
     /**
-     * Everything to leave out of what the current user is shown: disabled
-     * pipelines when that option is on, plus jobs the user may not see.
+     * Everything the job settings leave out for everyone: jobs the job filters do not
+     * track, and disabled pipelines when that option is on.
      */
-    public static Set<String> excludedForCurrentUser(DoraGlobalConfiguration config, MetricsStore store) {
+    public static Set<String> excludedForEveryone(DoraGlobalConfiguration config, MetricsStore store) {
+        Set<String> untracked = JobFilter.untracked(config, store);
         Set<String> disabled = DisabledPipelines.names(config, store);
-        Set<String> hidden = hiddenFromCurrentUser(store);
-        if (hidden.isEmpty()) {
+        if (untracked.isEmpty()) {
             return disabled;
         }
         if (disabled.isEmpty()) {
+            return untracked;
+        }
+        Set<String> all = new HashSet<>(untracked);
+        all.addAll(disabled);
+        return all;
+    }
+
+    /**
+     * Everything to leave out of what the current user is shown: what the job
+     * settings leave out for everyone, plus jobs the user may not see.
+     */
+    public static Set<String> excludedForCurrentUser(DoraGlobalConfiguration config, MetricsStore store) {
+        Set<String> excluded = excludedForEveryone(config, store);
+        Set<String> hidden = hiddenFromCurrentUser(store);
+        if (hidden.isEmpty()) {
+            return excluded;
+        }
+        if (excluded.isEmpty()) {
             return hidden;
         }
-        Set<String> all = new HashSet<>(disabled);
+        Set<String> all = new HashSet<>(excluded);
         all.addAll(hidden);
         return all;
     }

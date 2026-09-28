@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 /**
  * SQLite embedded database for storing build metrics.
@@ -78,7 +79,35 @@ public class MetricsStore {
             stmt.execute("PRAGMA journal_mode=WAL");
             stmt.execute("PRAGMA busy_timeout=5000");
         }
+        org.sqlite.Function.create(conn, "REGEXP", new RegexpFunction());
         return conn;
+    }
+
+    /**
+     * {@code value REGEXP pattern} for SQL, with the same full-match Java regex semantics as
+     * the job filter and the MTTR calculation, so a pattern selects the same jobs everywhere.
+     * SQLite has the operator but no implementation of its own. One instance per connection,
+     * and a connection is only used by one thread, so the compiled pattern can be kept.
+     */
+    private static final class RegexpFunction extends org.sqlite.Function {
+        private String lastRegex;
+        private Pattern lastPattern;
+
+        @Override
+        protected void xFunc() throws SQLException {
+            // X REGEXP Y calls regexp(Y, X): the pattern comes first
+            String regex = value_text(0);
+            String value = value_text(1);
+            if (regex == null || value == null) {
+                result();
+                return;
+            }
+            if (!regex.equals(lastRegex)) {
+                lastPattern = Pattern.compile(regex);
+                lastRegex = regex;
+            }
+            result(lastPattern.matcher(value).matches() ? 1 : 0);
+        }
     }
 
     private void initializeSchema() {
@@ -312,21 +341,21 @@ public class MetricsStore {
     }
 
     public double avgLeadTimeMs(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs) {
-        boolean glob = jobPattern != null && !".*".equals(jobPattern);
+        boolean filtered = jobPattern != null && !".*".equals(jobPattern);
         List<String> excluded = usableNames(excludedJobs);
         String sql = "SELECT AVG((b.timestamp + b.duration_ms) - c.min_commit) FROM builds b "
                 + "INNER JOIN (SELECT build_id, MIN(timestamp) as min_commit FROM commits GROUP BY build_id) c "
                 + "ON b.id = c.build_id "
                 + "WHERE b.timestamp BETWEEN ? AND ? AND b.result = 'SUCCESS' AND c.min_commit > 0"
-                + (glob ? " AND b.job_name GLOB ?" : "")
+                + (filtered ? " AND b.job_name REGEXP ?" : "")
                 + notIn("b.job_name", excluded);
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, fromMs);
             ps.setLong(2, toMs);
             int index = 3;
-            if (glob) {
-                ps.setString(index++, regexToGlob(jobPattern));
+            if (filtered) {
+                ps.setString(index++, jobPattern);
             }
             bindExcluded(ps, index, excluded);
             try (ResultSet rs = ps.executeQuery()) {
@@ -416,10 +445,10 @@ public class MetricsStore {
     }
 
     private long executeCount(long fromMs, long toMs, String jobPattern, String extraWhere, Set<String> excludedJobs) {
-        boolean glob = jobPattern != null && !".*".equals(jobPattern);
+        boolean filtered = jobPattern != null && !".*".equals(jobPattern);
         List<String> excluded = usableNames(excludedJobs);
         String sql = "SELECT COUNT(*) FROM builds WHERE timestamp BETWEEN ? AND ?"
-                + (glob ? " AND job_name GLOB ?" : "")
+                + (filtered ? " AND job_name REGEXP ?" : "")
                 + " " + extraWhere
                 + notIn("job_name", excluded);
         try (Connection conn = getConnection();
@@ -427,8 +456,8 @@ public class MetricsStore {
             ps.setLong(1, fromMs);
             ps.setLong(2, toMs);
             int index = 3;
-            if (glob) {
-                ps.setString(index++, regexToGlob(jobPattern));
+            if (filtered) {
+                ps.setString(index++, jobPattern);
             }
             bindExcluded(ps, index, excluded);
             try (ResultSet rs = ps.executeQuery()) {

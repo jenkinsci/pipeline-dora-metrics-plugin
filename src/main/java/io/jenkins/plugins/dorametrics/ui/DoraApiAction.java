@@ -205,9 +205,13 @@ public class DoraApiAction implements RootAction {
         }
     }
 
+    /**
+     * Every tracked job. The job settings, folders included, are already applied through
+     * the excluded set every calculator is built with, so filtering again by the production
+     * pattern alone would drop the jobs that only a production folder brings in.
+     */
     private String getPattern() {
-        DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
-        return config != null ? config.getProductionJobPattern() : ".*";
+        return ".*";
     }
 
     static JSONObject metricToJson(DoraMetric m) {
