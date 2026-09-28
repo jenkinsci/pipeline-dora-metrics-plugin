@@ -59,7 +59,7 @@ public class DoraCalculator {
      * Deployment Frequency: successful deploys per day.
      */
     public DoraMetric deploymentFrequency(long fromMs, long toMs, String jobPattern) {
-        long successCount = store.countSuccessfulBuilds(fromMs, toMs, jobPattern, excludedJobs);
+        long successCount = store.countSuccessfulBuilds(fromMs, toMs, jobPattern, excludedJobs, branchPattern());
         double days = Math.max(1, (toMs - fromMs) / (double) 86400_000);
         double frequency = successCount / days;
 
@@ -80,7 +80,7 @@ public class DoraCalculator {
      * Lead Time for Changes: avg time from commit to deploy.
      */
     public DoraMetric leadTimeForChanges(long fromMs, long toMs, String jobPattern) {
-        double avgMs = store.avgLeadTimeMs(fromMs, toMs, jobPattern, excludedJobs);
+        double avgMs = store.avgLeadTimeMs(fromMs, toMs, jobPattern, excludedJobs, branchPattern());
 
         if (avgMs <= 0) {
             return new DoraMetric("Lead Time for Changes", "N/A", DoraBand.LOW, 0);
@@ -108,6 +108,12 @@ public class DoraCalculator {
         if (!".*".equals(jobPattern) && jobPattern != null) {
             builds = builds.stream()
                     .filter(b -> b.jobName.matches(jobPattern))
+                    .collect(Collectors.toList());
+        }
+        String branchPattern = branchPattern();
+        if (branchPattern != null) {
+            builds = builds.stream()
+                    .filter(b -> MetricsStore.isOnBranch(b, branchPattern))
                     .collect(Collectors.toList());
         }
 
@@ -151,12 +157,12 @@ public class DoraCalculator {
      * Change Failure Rate: % of deploys that fail.
      */
     public DoraMetric changeFailureRate(long fromMs, long toMs, String jobPattern) {
-        long total = store.countTotalBuilds(fromMs, toMs, jobPattern, excludedJobs);
+        long total = store.countTotalBuilds(fromMs, toMs, jobPattern, excludedJobs, branchPattern());
         if (total == 0) {
             return new DoraMetric("Change Failure Rate", "N/A", DoraBand.LOW, 0);
         }
 
-        long failures = store.countFailedBuilds(fromMs, toMs, jobPattern, excludedJobs);
+        long failures = store.countFailedBuilds(fromMs, toMs, jobPattern, excludedJobs, branchPattern());
         double rate = (double) failures / total * 100;
 
         double cfrElite = config != null ? config.getCfrElitePercent() : 5.0;
@@ -170,6 +176,18 @@ public class DoraCalculator {
 
         return new DoraMetric("Change Failure Rate",
                 String.format("%.1f%%", rate), band, rate);
+    }
+
+    /**
+     * The branches that count, or null for all of them. "Track All Branches" off means only
+     * builds on a branch matching "Production Branch Pattern" count toward the four metrics.
+     */
+    private String branchPattern() {
+        if (config == null || config.isTrackAllBranches()) {
+            return null;
+        }
+        String pattern = config.getProductionBranchPattern();
+        return pattern == null || pattern.isEmpty() ? null : pattern;
     }
 
     public static class DoraMetric {

@@ -317,7 +317,13 @@ public class MetricsStore {
     }
 
     public long countSuccessfulBuilds(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs) {
-        return executeCount(fromMs, toMs, jobPattern, "AND result = 'SUCCESS'", excludedJobs);
+        return countSuccessfulBuilds(fromMs, toMs, jobPattern, excludedJobs, null);
+    }
+
+    /** As above, counting only builds on a branch matching {@code branchPattern}, or all when it is null. */
+    public long countSuccessfulBuilds(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs,
+                                      String branchPattern) {
+        return executeCount(fromMs, toMs, jobPattern, "AND result = 'SUCCESS'", excludedJobs, branchPattern);
     }
 
     public long countTotalBuilds(long fromMs, long toMs, String jobPattern) {
@@ -325,7 +331,13 @@ public class MetricsStore {
     }
 
     public long countTotalBuilds(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs) {
-        return executeCount(fromMs, toMs, jobPattern, "", excludedJobs);
+        return countTotalBuilds(fromMs, toMs, jobPattern, excludedJobs, null);
+    }
+
+    /** As above, counting only builds on a branch matching {@code branchPattern}, or all when it is null. */
+    public long countTotalBuilds(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs,
+                                 String branchPattern) {
+        return executeCount(fromMs, toMs, jobPattern, "", excludedJobs, branchPattern);
     }
 
     public long countFailedBuilds(long fromMs, long toMs, String jobPattern) {
@@ -333,7 +345,13 @@ public class MetricsStore {
     }
 
     public long countFailedBuilds(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs) {
-        return executeCount(fromMs, toMs, jobPattern, "AND result = 'FAILURE'", excludedJobs);
+        return countFailedBuilds(fromMs, toMs, jobPattern, excludedJobs, null);
+    }
+
+    /** As above, counting only builds on a branch matching {@code branchPattern}, or all when it is null. */
+    public long countFailedBuilds(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs,
+                                  String branchPattern) {
+        return executeCount(fromMs, toMs, jobPattern, "AND result = 'FAILURE'", excludedJobs, branchPattern);
     }
 
     public double avgLeadTimeMs(long fromMs, long toMs, String jobPattern) {
@@ -341,6 +359,12 @@ public class MetricsStore {
     }
 
     public double avgLeadTimeMs(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs) {
+        return avgLeadTimeMs(fromMs, toMs, jobPattern, excludedJobs, null);
+    }
+
+    /** As above, over builds on a branch matching {@code branchPattern} only, or all when it is null. */
+    public double avgLeadTimeMs(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs,
+                                String branchPattern) {
         boolean filtered = jobPattern != null && !".*".equals(jobPattern);
         List<String> excluded = usableNames(excludedJobs);
         String sql = "SELECT AVG((b.timestamp + b.duration_ms) - c.min_commit) FROM builds b "
@@ -348,6 +372,7 @@ public class MetricsStore {
                 + "ON b.id = c.build_id "
                 + "WHERE b.timestamp BETWEEN ? AND ? AND b.result = 'SUCCESS' AND c.min_commit > 0"
                 + (filtered ? " AND b.job_name REGEXP ?" : "")
+                + branchCondition("b.branch", branchPattern)
                 + notIn("b.job_name", excluded);
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -356,6 +381,9 @@ public class MetricsStore {
             int index = 3;
             if (filtered) {
                 ps.setString(index++, jobPattern);
+            }
+            if (branchPattern != null) {
+                ps.setString(index++, branchPattern);
             }
             bindExcluded(ps, index, excluded);
             try (ResultSet rs = ps.executeQuery()) {
@@ -444,11 +472,13 @@ public class MetricsStore {
         return results;
     }
 
-    private long executeCount(long fromMs, long toMs, String jobPattern, String extraWhere, Set<String> excludedJobs) {
+    private long executeCount(long fromMs, long toMs, String jobPattern, String extraWhere,
+                              Set<String> excludedJobs, String branchPattern) {
         boolean filtered = jobPattern != null && !".*".equals(jobPattern);
         List<String> excluded = usableNames(excludedJobs);
         String sql = "SELECT COUNT(*) FROM builds WHERE timestamp BETWEEN ? AND ?"
                 + (filtered ? " AND job_name REGEXP ?" : "")
+                + branchCondition("branch", branchPattern)
                 + " " + extraWhere
                 + notIn("job_name", excluded);
         try (Connection conn = getConnection();
@@ -459,6 +489,9 @@ public class MetricsStore {
             if (filtered) {
                 ps.setString(index++, jobPattern);
             }
+            if (branchPattern != null) {
+                ps.setString(index++, branchPattern);
+            }
             bindExcluded(ps, index, excluded);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) return rs.getLong(1);
@@ -467,6 +500,25 @@ public class MetricsStore {
             LOGGER.log(Level.FINE, "Count query failed", e);
         }
         return 0;
+    }
+
+    /**
+     * SQL fragment keeping builds whose branch matches the pattern, with one bind variable for
+     * it. A build with no branch is kept: nothing says it came from a branch that is not
+     * production, and a deploy job without SCM has none. Empty when there is no pattern.
+     */
+    private static String branchCondition(String column, String branchPattern) {
+        if (branchPattern == null) return "";
+        return " AND (" + column + " IS NULL OR " + column + " = '' OR " + column + " REGEXP ?)";
+    }
+
+    /**
+     * Whether a build's branch passes the same test as {@link #branchCondition}, for the
+     * metrics that are worked out row by row.
+     */
+    public static boolean isOnBranch(BuildRecord build, String branchPattern) {
+        return branchPattern == null || build.branch == null || build.branch.isEmpty()
+                || build.branch.matches(branchPattern);
     }
 
     /**

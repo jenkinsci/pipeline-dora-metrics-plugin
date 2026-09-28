@@ -20,7 +20,7 @@
             <f:textbox default="main|master"/>
         </f:entry>
         <f:entry title="Track All Branches" field="trackAllBranches"
-                 description="If unchecked, only production branches count for DORA metrics.">
+                 description="If unchecked, only builds on a branch matching the production branch pattern count for the four DORA metrics. Builds without a branch, such as a deploy job without SCM, still count.">
             <f:checkbox default="true"/>
         </f:entry>
         <f:entry title="Ignore Disabled Pipelines" field="ignoreDisabledPipelines"
