@@ -28,7 +28,7 @@ public class MetricsStore {
 
     private static final Set<String> ALLOWED_ORDER_BY = Set.of(
             "avg_dur DESC", "avg_dur ASC", "failures DESC", "failures ASC",
-            "total DESC", "total ASC"
+            "total DESC", "total ASC", "failure_rate DESC"
     );
 
     private final String dbUrl;
@@ -484,7 +484,8 @@ public class MetricsStore {
         List<String> excluded = usableNames(excludedJobs);
         String sql = "SELECT job_name, COUNT(*) as total, "
                 + "AVG(duration_ms) as avg_dur, "
-                + "SUM(CASE WHEN result = 'FAILURE' THEN 1 ELSE 0 END) as failures "
+                + "SUM(CASE WHEN result = 'FAILURE' THEN 1 ELSE 0 END) as failures, "
+                + "SUM(CASE WHEN result = 'FAILURE' THEN 1.0 ELSE 0 END) / COUNT(*) as failure_rate "
                 + "FROM builds WHERE timestamp BETWEEN ? AND ?"
                 + notIn("job_name", excluded)
                 + " GROUP BY job_name ORDER BY " + orderBy + " LIMIT ?";
@@ -522,7 +523,8 @@ public class MetricsStore {
         List<String> excluded = usableNames(excludedJobs);
         String sql = "SELECT s.stage_name, COUNT(*) as total, "
                 + "AVG(s.duration_ms) as avg_dur, "
-                + "SUM(CASE WHEN s.result = 'FAILURE' THEN 1 ELSE 0 END) as failures "
+                + "SUM(CASE WHEN s.result = 'FAILURE' THEN 1 ELSE 0 END) as failures, "
+                + "SUM(CASE WHEN s.result = 'FAILURE' THEN 1.0 ELSE 0 END) / COUNT(*) as failure_rate "
                 + "FROM stages s INNER JOIN builds b ON s.build_id = b.id "
                 + "WHERE b.timestamp BETWEEN ? AND ?"
                 + notIn("b.job_name", excluded)

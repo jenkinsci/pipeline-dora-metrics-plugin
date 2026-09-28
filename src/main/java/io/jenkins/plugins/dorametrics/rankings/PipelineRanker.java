@@ -48,7 +48,7 @@ public class PipelineRanker {
     }
 
     public List<RankedPipeline> mostFailingPipelines(long fromMs, long toMs, int limit) {
-        List<MetricsStore.JobStats> stats = store.getJobStats(fromMs, toMs, limit * 2, "failures DESC", excludedJobs);
+        List<MetricsStore.JobStats> stats = store.getJobStats(fromMs, toMs, limit, "failure_rate DESC", excludedJobs);
         List<RankedPipeline> ranked = new ArrayList<>();
         for (MetricsStore.JobStats s : stats) {
             double failureRate = s.buildCount > 0 ? (double) s.failureCount / s.buildCount * 100 : 0;
@@ -75,6 +75,7 @@ public class PipelineRanker {
             if (previousAvg <= 0) continue;
 
             double improvement = ((previousAvg - currentAvg) / previousAvg) * 100;
+            if (improvement <= 0) continue; // slower or unchanged is not an improvement
             ranked.add(new RankedPipeline(jobName, improvement,
                     String.format("%+.1f%%", -improvement), current.get(jobName).size()));
         }
@@ -88,7 +89,11 @@ public class PipelineRanker {
         List<RankedPipeline> ranked = new ArrayList<>();
 
         for (Map.Entry<String, List<BuildRecord>> entry : byJob.entrySet()) {
-            List<BuildRecord> builds = entry.getValue();
+            // An aborted or skipped run says nothing about whether the pipeline passes, so
+            // only runs that finished with a result count as flips.
+            List<BuildRecord> builds = entry.getValue().stream()
+                    .filter(PipelineRanker::finishedWithAResult)
+                    .collect(Collectors.toList());
             if (builds.size() < 3) continue;
 
             builds.sort(Comparator.comparingLong(b -> b.timestamp));
@@ -100,6 +105,7 @@ public class PipelineRanker {
             }
 
             double flakyScore = (double) transitions / (builds.size() - 1) * 100;
+            if (transitions == 0) continue; // never flipped, so not flaky at all
             ranked.add(new RankedPipeline(entry.getKey(), flakyScore,
                     String.format("%.0f%% transitions", flakyScore), builds.size()));
         }
@@ -119,7 +125,7 @@ public class PipelineRanker {
     }
 
     public List<RankedStage> mostFailingStages(long fromMs, long toMs, int limit) {
-        List<MetricsStore.StageStats> stats = store.getStageStats(fromMs, toMs, limit * 2, "failures DESC", excludedJobs);
+        List<MetricsStore.StageStats> stats = store.getStageStats(fromMs, toMs, limit, "failure_rate DESC", excludedJobs);
         List<RankedStage> ranked = new ArrayList<>();
         for (MetricsStore.StageStats s : stats) {
             double failureRate = s.totalRuns > 0 ? (double) s.failureCount / s.totalRuns * 100 : 0;
@@ -128,6 +134,10 @@ public class PipelineRanker {
         }
         ranked.sort((a, b) -> Double.compare(b.value, a.value));
         return ranked.stream().limit(limit).collect(Collectors.toList());
+    }
+
+    private static boolean finishedWithAResult(BuildRecord build) {
+        return "SUCCESS".equals(build.result) || "UNSTABLE".equals(build.result) || "FAILURE".equals(build.result);
     }
 
     private Map<String, List<BuildRecord>> groupByJob(long fromMs, long toMs) {

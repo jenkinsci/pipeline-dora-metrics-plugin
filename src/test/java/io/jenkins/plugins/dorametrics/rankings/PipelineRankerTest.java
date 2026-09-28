@@ -148,9 +148,8 @@ public class PipelineRankerTest {
         List<PipelineRanker.RankedPipeline> slowest = filtered.slowestPipelines(from, to, 10);
         assertEquals(1, slowest.size());
         assertEquals("rank-active", slowest.get(0).jobName);
-        List<PipelineRanker.RankedPipeline> flakiest = filtered.flakiestPipelines(from, to, 10);
-        assertEquals(1, flakiest.size());
-        assertEquals("rank-active", flakiest.get(0).jobName);
+        // rank-active never flips, so once the disabled job is left out nothing is flaky
+        assertTrue(filtered.flakiestPipelines(from, to, 10).isEmpty());
         assertTrue(filtered.slowestStages(from, to, 10).isEmpty());
         config.setIgnoreDisabledPipelines(false); // reset
     }

@@ -55,24 +55,24 @@ public class DoraDashboardAction implements RootAction {
     }
 
     public List<RankedPipeline> getSlowestPipelines() {
-        try { return filterVisible(new PipelineRanker().slowestPipelines(thirtyDaysAgo(), now(), getTopN())); }
+        try { return topVisible(new PipelineRanker().slowestPipelines(thirtyDaysAgo(), now(), Integer.MAX_VALUE)); }
         catch (Exception e) { return java.util.Collections.emptyList(); }
     }
 
     public List<RankedPipeline> getMostFailingPipelines() {
-        try { return filterVisible(new PipelineRanker().mostFailingPipelines(thirtyDaysAgo(), now(), getTopN())); }
+        try { return topVisible(new PipelineRanker().mostFailingPipelines(thirtyDaysAgo(), now(), Integer.MAX_VALUE)); }
         catch (Exception e) { return java.util.Collections.emptyList(); }
     }
 
     public List<RankedPipeline> getMostImprovedPipelines() {
         try {
             long n = now(); long ago = thirtyDaysAgo();
-            return filterVisible(new PipelineRanker().mostImproved(ago, n, ago - (30L * 86400_000), ago, getTopN()));
+            return topVisible(new PipelineRanker().mostImproved(ago, n, ago - (30L * 86400_000), ago, Integer.MAX_VALUE));
         } catch (Exception e) { return java.util.Collections.emptyList(); }
     }
 
     public List<RankedPipeline> getFlakiestPipelines() {
-        try { return filterVisible(new PipelineRanker().flakiestPipelines(thirtyDaysAgo(), now(), getTopN())); }
+        try { return topVisible(new PipelineRanker().flakiestPipelines(thirtyDaysAgo(), now(), Integer.MAX_VALUE)); }
         catch (Exception e) { return java.util.Collections.emptyList(); }
     }
 
@@ -92,7 +92,13 @@ public class DoraDashboardAction implements RootAction {
      */
     public String jobUrl(String jobName) {
         if (jobName == null) return "";
-        return "job/" + jobName.replace("/", "/job/");
+        // Each part is encoded, so a multibranch job such as feature%2Fx stays one path part
+        StringBuilder url = new StringBuilder();
+        for (String part : jobName.split("/")) {
+            if (url.length() > 0) url.append('/');
+            url.append("job/").append(hudson.Util.rawEncode(part));
+        }
+        return url.toString();
     }
 
     /**
@@ -103,6 +109,14 @@ public class DoraDashboardAction implements RootAction {
         return pipelines.stream()
                 .filter(p -> DoraApiAction.isVisibleItem(jenkins, p.jobName))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * The first Top N rows the user can open. Ranked in full and cut afterwards, because rows
+     * that are filtered out, such as the history of a deleted job, would otherwise take slots.
+     */
+    private List<RankedPipeline> topVisible(List<RankedPipeline> ranked) {
+        return filterVisible(ranked).stream().limit(getTopN()).collect(Collectors.toList());
     }
 
     // === Helpers ===

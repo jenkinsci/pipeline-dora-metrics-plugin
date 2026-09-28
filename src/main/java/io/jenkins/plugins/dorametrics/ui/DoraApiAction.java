@@ -70,9 +70,10 @@ public class DoraApiAction implements RootAction {
         PipelineRanker ranker = new PipelineRanker();
         Jenkins jenkins = Jenkins.get();
         JSONObject json = new JSONObject();
-        json.put("slowest", rankingsToJson(filterVisible(ranker.slowestPipelines(fromMs, toMs, limit), jenkins)));
-        json.put("most_failing", rankingsToJson(filterVisible(ranker.mostFailingPipelines(fromMs, toMs, limit), jenkins)));
-        json.put("flakiest", rankingsToJson(filterVisible(ranker.flakiestPipelines(fromMs, toMs, limit), jenkins)));
+        // Ranked in full and cut after filtering, so filtered rows do not take slots
+        json.put("slowest", rankingsToJson(topVisible(ranker.slowestPipelines(fromMs, toMs, Integer.MAX_VALUE), jenkins, limit)));
+        json.put("most_failing", rankingsToJson(topVisible(ranker.mostFailingPipelines(fromMs, toMs, Integer.MAX_VALUE), jenkins, limit)));
+        json.put("flakiest", rankingsToJson(topVisible(ranker.flakiestPipelines(fromMs, toMs, Integer.MAX_VALUE), jenkins, limit)));
 
         return new org.kohsuke.stapler.json.JsonHttpResponse(json, 200);
     }
@@ -188,6 +189,10 @@ public class DoraApiAction implements RootAction {
             return "\"" + value.replace("\"", "\"\"") + "\"";
         }
         return value;
+    }
+
+    private static List<RankedPipeline> topVisible(List<RankedPipeline> pipelines, Jenkins jenkins, int limit) {
+        return filterVisible(pipelines, jenkins).stream().limit(limit).collect(Collectors.toList());
     }
 
     private static List<RankedPipeline> filterVisible(List<RankedPipeline> pipelines, Jenkins jenkins) {
