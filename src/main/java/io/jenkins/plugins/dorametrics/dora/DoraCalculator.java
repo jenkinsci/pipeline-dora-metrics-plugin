@@ -86,9 +86,9 @@ public class DoraCalculator {
             return new DoraMetric("Lead Time for Changes", "N/A", DoraBand.LOW, 0);
         }
 
-        double ltElite = config != null ? config.getLtEliteSeconds() * 1000 : 3600L * 1000;
-        double ltHigh = config != null ? config.getLtHighSeconds() * 1000 : 86400L * 1000;
-        double ltMedium = config != null ? config.getLtMediumSeconds() * 1000 : 604800L * 1000;
+        double ltElite = config != null ? config.getLtEliteSeconds() * 1000 : 86400L * 1000;
+        double ltHigh = config != null ? config.getLtHighSeconds() * 1000 : 604800L * 1000;
+        double ltMedium = config != null ? config.getLtMediumSeconds() * 1000 : 2592000L * 1000;
 
         DoraBand band = avgMs < ltElite ? DoraBand.ELITE
                 : avgMs < ltHigh ? DoraBand.HIGH

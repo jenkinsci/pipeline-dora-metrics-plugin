@@ -49,22 +49,22 @@
 
         <f:advanced title="DORA Band Thresholds">
             <f:entry title="Deploy Frequency - Elite (deploys/day)" field="dfEliteThreshold">
-                <f:number default="1"/>
+                <f:number default="1" step="any"/>
             </f:entry>
             <f:entry title="Deploy Frequency - High (deploys/day)" field="dfHighThreshold">
-                <f:number default="0"/>
+                <f:number default="0.142" step="any"/>
             </f:entry>
             <f:entry title="Deploy Frequency - Medium (deploys/day)" field="dfMediumThreshold">
-                <f:number default="0"/>
+                <f:number default="0.033" step="any"/>
             </f:entry>
             <f:entry title="Lead Time - Elite (seconds)" field="ltEliteSeconds">
-                <f:number default="3600"/>
-            </f:entry>
-            <f:entry title="Lead Time - High (seconds)" field="ltHighSeconds">
                 <f:number default="86400"/>
             </f:entry>
-            <f:entry title="Lead Time - Medium (seconds)" field="ltMediumSeconds">
+            <f:entry title="Lead Time - High (seconds)" field="ltHighSeconds">
                 <f:number default="604800"/>
+            </f:entry>
+            <f:entry title="Lead Time - Medium (seconds)" field="ltMediumSeconds">
+                <f:number default="2592000"/>
             </f:entry>
             <f:entry title="MTTR - Elite (seconds)" field="mttrEliteSeconds">
                 <f:number default="3600"/>
@@ -76,13 +76,13 @@
                 <f:number default="604800"/>
             </f:entry>
             <f:entry title="Change Failure Rate - Elite (%)" field="cfrElitePercent">
-                <f:number default="5"/>
+                <f:number default="5" step="any"/>
             </f:entry>
             <f:entry title="Change Failure Rate - High (%)" field="cfrHighPercent">
-                <f:number default="10"/>
+                <f:number default="10" step="any"/>
             </f:entry>
             <f:entry title="Change Failure Rate - Medium (%)" field="cfrMediumPercent">
-                <f:number default="15"/>
+                <f:number default="15" step="any"/>
             </f:entry>
         </f:advanced>
 

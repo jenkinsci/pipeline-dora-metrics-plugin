@@ -40,9 +40,11 @@ public class DoraGlobalConfiguration extends GlobalConfiguration {
     private double dfEliteThreshold = 1.0;
     private double dfHighThreshold = 0.142;
     private double dfMediumThreshold = 0.033;
-    private long ltEliteSeconds = 3600;      // 1 hour
-    private long ltHighSeconds = 86400;      // 1 day
-    private long ltMediumSeconds = 604800;   // 1 week
+    // Lead time bands from the 2024 DORA report: Elite under a day, High under a week,
+    // Medium under a month, Low beyond that.
+    private long ltEliteSeconds = 86400;     // 1 day
+    private long ltHighSeconds = 604800;     // 1 week
+    private long ltMediumSeconds = 2592000;  // 30 days
     private long mttrEliteSeconds = 3600;
     private long mttrHighSeconds = 86400;
     private long mttrMediumSeconds = 604800;
@@ -56,7 +58,22 @@ public class DoraGlobalConfiguration extends GlobalConfiguration {
 
     public DoraGlobalConfiguration() {
         load();
+        moveOldLeadTimeDefaults();
         compilePatterns();
+    }
+
+    /**
+     * Earlier versions shipped lead time bands one step stricter than DORA's (an hour, a day,
+     * a week), and saving the System page writes every field, so most installs have them saved.
+     * Saved values that are exactly those old defaults move to the current ones. Anything else
+     * was chosen by someone and stays.
+     */
+    private void moveOldLeadTimeDefaults() {
+        if (ltEliteSeconds == 3600 && ltHighSeconds == 86400 && ltMediumSeconds == 604800) {
+            ltEliteSeconds = 86400;
+            ltHighSeconds = 604800;
+            ltMediumSeconds = 2592000;
+        }
     }
 
     public static DoraGlobalConfiguration get() {
@@ -89,9 +106,9 @@ public class DoraGlobalConfiguration extends GlobalConfiguration {
         this.dfEliteThreshold = Math.max(0, json.optDouble("dfEliteThreshold", 1.0));
         this.dfHighThreshold = Math.max(0, json.optDouble("dfHighThreshold", 0.142));
         this.dfMediumThreshold = Math.max(0, json.optDouble("dfMediumThreshold", 0.033));
-        this.ltEliteSeconds = Math.max(0, json.optLong("ltEliteSeconds", 3600));
-        this.ltHighSeconds = Math.max(0, json.optLong("ltHighSeconds", 86400));
-        this.ltMediumSeconds = Math.max(0, json.optLong("ltMediumSeconds", 604800));
+        this.ltEliteSeconds = Math.max(0, json.optLong("ltEliteSeconds", 86400));
+        this.ltHighSeconds = Math.max(0, json.optLong("ltHighSeconds", 604800));
+        this.ltMediumSeconds = Math.max(0, json.optLong("ltMediumSeconds", 2592000));
         this.mttrEliteSeconds = Math.max(0, json.optLong("mttrEliteSeconds", 3600));
         this.mttrHighSeconds = Math.max(0, json.optLong("mttrHighSeconds", 86400));
         this.mttrMediumSeconds = Math.max(0, json.optLong("mttrMediumSeconds", 604800));
@@ -158,8 +175,62 @@ public class DoraGlobalConfiguration extends GlobalConfiguration {
 
     @POST
     @SuppressWarnings("lgtm[jenkins/no-permission-check]")
-    public FormValidation doCheckCfrHighPercent(@QueryParameter String value) {
-        return validatePercent(value);
+    public FormValidation doCheckCfrHighPercent(@QueryParameter String value,
+                                                @QueryParameter String cfrElitePercent,
+                                                @QueryParameter String cfrMediumPercent) {
+        FormValidation percent = validatePercent(value);
+        if (percent.kind != FormValidation.Kind.OK) return percent;
+        return lowerIsBetter(value, cfrElitePercent, cfrMediumPercent, "Change failure rate");
+    }
+
+    @POST
+    @SuppressWarnings("lgtm[jenkins/no-permission-check]")
+    public FormValidation doCheckDfHighThreshold(@QueryParameter String value,
+                                                 @QueryParameter String dfEliteThreshold,
+                                                 @QueryParameter String dfMediumThreshold) {
+        Double high = parse(value), elite = parse(dfEliteThreshold), medium = parse(dfMediumThreshold);
+        if (high == null) return value == null || value.isEmpty() ? FormValidation.ok() : FormValidation.error("Must be a number");
+        if (high < 0) return FormValidation.error("Must not be negative");
+        if ((elite != null && elite < high) || (medium != null && high < medium)) {
+            return FormValidation.warning("Deploy frequency bands go from most to fewest deploys a day: Elite, then High, then Medium.");
+        }
+        return FormValidation.ok();
+    }
+
+    @POST
+    @SuppressWarnings("lgtm[jenkins/no-permission-check]")
+    public FormValidation doCheckLtHighSeconds(@QueryParameter String value,
+                                               @QueryParameter String ltEliteSeconds,
+                                               @QueryParameter String ltMediumSeconds) {
+        return lowerIsBetter(value, ltEliteSeconds, ltMediumSeconds, "Lead time");
+    }
+
+    @POST
+    @SuppressWarnings("lgtm[jenkins/no-permission-check]")
+    public FormValidation doCheckMttrHighSeconds(@QueryParameter String value,
+                                                 @QueryParameter String mttrEliteSeconds,
+                                                 @QueryParameter String mttrMediumSeconds) {
+        return lowerIsBetter(value, mttrEliteSeconds, mttrMediumSeconds, "MTTR");
+    }
+
+    /** For a metric where less is better, the High band has to sit between Elite and Medium. */
+    private static FormValidation lowerIsBetter(String value, String eliteValue, String mediumValue, String metric) {
+        Double high = parse(value), elite = parse(eliteValue), medium = parse(mediumValue);
+        if (high == null) return value == null || value.isEmpty() ? FormValidation.ok() : FormValidation.error("Must be a number");
+        if (high < 0) return FormValidation.error("Must not be negative");
+        if ((elite != null && elite > high) || (medium != null && high > medium)) {
+            return FormValidation.warning(metric + " bands go from lowest to highest: Elite, then High, then Medium.");
+        }
+        return FormValidation.ok();
+    }
+
+    private static Double parse(String value) {
+        if (value == null || value.trim().isEmpty()) return null;
+        try {
+            return Double.parseDouble(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     @POST
