@@ -439,27 +439,45 @@ public class MetricsStore {
     }
 
     /** As above, over builds on a branch matching {@code branchPattern} only, or all when it is null. */
+    /**
+     * Average lead time of the successful builds in the window, as the time from the earliest
+     * commit that build deployed until it finished. A changelog only lists what changed since
+     * the build before, so a commit first built by a build that failed or was aborted is in
+     * that build's changelog, not in the deploying one's. Every build since the job's previous
+     * success therefore counts toward the next success. Only builds on a production branch
+     * take part when {@code branchPattern} is set.
+     */
     public double avgLeadTimeMs(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs,
                                 String branchPattern) {
         boolean filtered = jobPattern != null && !".*".equals(jobPattern);
         List<String> excluded = usableNames(excludedJobs);
-        String sql = "SELECT AVG((b.timestamp + b.duration_ms) - c.min_commit) FROM builds b "
-                + "INNER JOIN (SELECT build_id, MIN(timestamp) as min_commit FROM commits GROUP BY build_id) c "
-                + "ON b.id = c.build_id "
-                + "WHERE b.timestamp BETWEEN ? AND ? AND b.result = 'SUCCESS' AND c.min_commit > 0"
-                + (filtered ? " AND b.job_name REGEXP ?" : "")
-                + branchCondition("b.branch", branchPattern)
-                + notIn("b.job_name", excluded);
+        String sql = "WITH ordered AS ("
+                + " SELECT id, job_name, timestamp, duration_ms, result,"
+                // how many successes this job had before this build: the same for a success and
+                // every build since the success before it
+                + " COALESCE(SUM(CASE WHEN result = 'SUCCESS' THEN 1 ELSE 0 END) OVER ("
+                + " PARTITION BY job_name ORDER BY timestamp, id"
+                + " ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0) AS deployment"
+                + " FROM builds WHERE 1 = 1" + branchCondition("branch", branchPattern) + "),"
+                + " first_commits AS ("
+                + " SELECT o.job_name, o.deployment, MIN(c.timestamp) AS first_commit"
+                + " FROM ordered o INNER JOIN commits c ON c.build_id = o.id"
+                + " WHERE c.timestamp > 0 GROUP BY o.job_name, o.deployment)"
+                + " SELECT AVG((d.timestamp + d.duration_ms) - f.first_commit) FROM ordered d"
+                + " INNER JOIN first_commits f ON f.job_name = d.job_name AND f.deployment = d.deployment"
+                + " WHERE d.result = 'SUCCESS' AND d.timestamp BETWEEN ? AND ?"
+                + (filtered ? " AND d.job_name REGEXP ?" : "")
+                + notIn("d.job_name", excluded);
         try (Connection conn = getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setLong(1, fromMs);
-            ps.setLong(2, toMs);
-            int index = 3;
-            if (filtered) {
-                ps.setString(index++, jobPattern);
-            }
+            int index = 1;
             if (branchPattern != null) {
                 ps.setString(index++, branchPattern);
+            }
+            ps.setLong(index++, fromMs);
+            ps.setLong(index++, toMs);
+            if (filtered) {
+                ps.setString(index++, jobPattern);
             }
             bindExcluded(ps, index, excluded);
             try (ResultSet rs = ps.executeQuery()) {
