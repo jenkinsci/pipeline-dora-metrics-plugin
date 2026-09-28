@@ -91,6 +91,8 @@ public class MetricsExporter {
         snapshot.put("total_builds", builds.size());
 
         JSONArray buildsArr = new JSONArray();
+        java.util.Map<Long, List<MetricsStore.StageRecord>> stagesByBuild = store.getStagesByBuild(
+                builds.stream().map(b -> b.id).collect(java.util.stream.Collectors.toList()));
         for (BuildRecord b : builds) {
             JSONObject bj = new JSONObject();
             bj.put("job", b.jobName);
@@ -102,7 +104,7 @@ public class MetricsExporter {
             bj.put("branch", b.branch);
 
             JSONArray stagesArr = new JSONArray();
-            for (MetricsStore.StageRecord s : store.getStages(b.id)) {
+            for (MetricsStore.StageRecord s : stagesByBuild.getOrDefault(b.id, java.util.Collections.emptyList())) {
                 JSONObject sj = new JSONObject();
                 sj.put("name", s.stageName);
                 sj.put("duration_ms", s.durationMs);

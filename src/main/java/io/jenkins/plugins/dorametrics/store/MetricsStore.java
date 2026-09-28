@@ -376,6 +376,47 @@ public class MetricsStore {
         return records;
     }
 
+    /**
+     * The stages of many builds at once, keyed by build id, each list in recorded order.
+     * One query per few hundred builds instead of one per build, which is what made exporting
+     * a month of history slow.
+     */
+    public java.util.Map<Long, List<StageRecord>> getStagesByBuild(java.util.Collection<Long> buildIds) {
+        java.util.Map<Long, List<StageRecord>> byBuild = new java.util.HashMap<>();
+        List<Long> ids = new ArrayList<>(buildIds);
+        try (Connection conn = getConnection()) {
+            for (int start = 0; start < ids.size(); start += STAGE_BATCH) {
+                List<Long> chunk = ids.subList(start, Math.min(ids.size(), start + STAGE_BATCH));
+                StringBuilder sql = new StringBuilder("SELECT * FROM stages WHERE build_id IN (");
+                for (int i = 0; i < chunk.size(); i++) {
+                    sql.append(i == 0 ? "?" : ",?");
+                }
+                sql.append(") ORDER BY id");
+                try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+                    for (int i = 0; i < chunk.size(); i++) {
+                        ps.setLong(i + 1, chunk.get(i));
+                    }
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) {
+                            StageRecord stage = new StageRecord(
+                                    rs.getLong("id"),
+                                    rs.getLong("build_id"),
+                                    rs.getString("stage_name"),
+                                    rs.getLong("duration_ms"),
+                                    rs.getString("result"));
+                            byBuild.computeIfAbsent(stage.buildId, k -> new ArrayList<>()).add(stage);
+                        }
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "Failed to query stages", e);
+        }
+        return byBuild;
+    }
+
+    private static final int STAGE_BATCH = 500;
+
     // === Optimized aggregate queries ===
 
     public long countSuccessfulBuilds(long fromMs, long toMs, String jobPattern) {

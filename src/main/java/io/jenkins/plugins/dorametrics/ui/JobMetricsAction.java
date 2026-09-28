@@ -82,8 +82,10 @@ public class JobMetricsAction implements Action {
     public List<RankedStage> getSlowestStages() {
         Map<String, List<Long>> stageDurations = new LinkedHashMap<>();
 
+        Map<Long, List<MetricsStore.StageRecord>> stagesByBuild = MetricsStore.getInstance().getStagesByBuild(
+                getBuilds().stream().map(b -> b.id).collect(java.util.stream.Collectors.toList()));
         for (BuildRecord build : getBuilds()) {
-            for (MetricsStore.StageRecord stage : MetricsStore.getInstance().getStages(build.id)) {
+            for (MetricsStore.StageRecord stage : stagesByBuild.getOrDefault(build.id, Collections.emptyList())) {
                 stageDurations.computeIfAbsent(stage.stageName, k -> new ArrayList<>())
                         .add(stage.durationMs);
             }
