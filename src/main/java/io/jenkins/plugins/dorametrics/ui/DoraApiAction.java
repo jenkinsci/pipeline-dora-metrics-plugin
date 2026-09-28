@@ -141,10 +141,11 @@ public class DoraApiAction implements RootAction {
             StringBuilder csv = new StringBuilder();
             csv.append("job_name,build_number,timestamp,duration_ms,result,trigger_type,branch\n");
             for (BuildRecord b : builds) {
-                csv.append(String.format(Locale.ROOT, "%s,%d,%d,%d,%s,%s,%s\n",
+                // a plain \n on every platform, so the export does not depend on the controller's OS
+                csv.append(String.format(Locale.ROOT, "%s,%d,%d,%d,%s,%s,%s",
                         escapeCsv(b.jobName), b.buildNumber, b.timestamp, b.durationMs,
                         escapeCsv(b.result), escapeCsv(b.triggerType),
-                        escapeCsv(b.branch != null ? b.branch : "")));
+                        escapeCsv(b.branch != null ? b.branch : ""))).append('\n');
             }
             final String csvStr = csv.toString();
             return new org.kohsuke.stapler.HttpResponse() {
