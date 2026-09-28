@@ -38,7 +38,7 @@
             <f:number default="10"/>
         </f:entry>
 
-        <f:optionalBlock title="Enable Cloud Storage Export" field="exportEnabled" checked="${instance.exportEnabled}">
+        <f:optionalBlock title="Enable Cloud Storage Export" field="exportEnabled" checked="${instance.exportEnabled}" inline="true">
             <f:entry title="Export Interval (hours)" field="exportIntervalHours"
                      description="How often to push backup snapshots to cloud storage.">
                 <f:number default="24"/>
