@@ -143,10 +143,7 @@ final class BuildRecorder {
             for (String var : branchVars) {
                 String branch = env.get(var);
                 if (branch != null && !branch.isEmpty()) {
-                    if (branch.contains("/")) {
-                        branch = branch.substring(branch.lastIndexOf('/') + 1);
-                    }
-                    return branch;
+                    return branchName(var, branch);
                 }
             }
             // Multibranch: job name often IS the branch
@@ -159,6 +156,30 @@ final class BuildRecorder {
             LOGGER.log(Level.FINE, "Could not determine branch for " + run.getFullDisplayName(), e);
         }
         return null;
+    }
+
+    /**
+     * The branch as people write it, path included, so a production pattern such as
+     * {@code release/.*} can match it. Only the parts that are not the branch are dropped:
+     * a {@code refs/heads/} or {@code refs/remotes/<remote>/} prefix, and the remote that
+     * {@code GIT_BRANCH} starts with ({@code origin/release/1.2}).
+     */
+    static String branchName(String variable, String value) {
+        if (value.startsWith("refs/heads/")) {
+            return value.substring("refs/heads/".length());
+        }
+        if (value.startsWith("refs/remotes/")) {
+            return afterFirstSlash(value.substring("refs/remotes/".length()));
+        }
+        if ("GIT_BRANCH".equals(variable)) {
+            return afterFirstSlash(value);
+        }
+        return value;
+    }
+
+    private static String afterFirstSlash(String value) {
+        int slash = value.indexOf('/');
+        return slash > 0 && slash < value.length() - 1 ? value.substring(slash + 1) : value;
     }
 
     private static String getTriggerType(Run<?, ?> run) {
