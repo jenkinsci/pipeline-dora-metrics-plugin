@@ -296,6 +296,32 @@ public class MetricsStore {
         return starts;
     }
 
+    /**
+     * Builds that finished after {@code afterMs} and no later than {@code untilMs}, leaving out
+     * the given job names. A build is stored when it finishes, so this is what an export that
+     * ran at {@code afterMs} could not have seen yet, however long before that the build started.
+     */
+    public List<BuildRecord> getBuildsFinishedBetween(long afterMs, long untilMs, Set<String> excludedJobs) {
+        List<BuildRecord> records = new ArrayList<>();
+        List<String> excluded = usableNames(excludedJobs);
+        String sql = "SELECT * FROM builds WHERE timestamp + duration_ms > ? AND timestamp + duration_ms <= ?"
+                + notIn("job_name", excluded) + " ORDER BY timestamp";
+        try (Connection conn = getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, afterMs);
+            ps.setLong(2, untilMs);
+            bindExcluded(ps, 3, excluded);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    records.add(BuildRecord.fromResultSet(rs));
+                }
+            }
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "Failed to query finished builds", e);
+        }
+        return records;
+    }
+
     public List<String> getAllJobNames() {
         List<String> names = new ArrayList<>();
         String sql = "SELECT DISTINCT job_name FROM builds ORDER BY job_name";

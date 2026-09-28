@@ -7,7 +7,9 @@ import io.jenkins.plugins.dorametrics.store.MetricsStore.BuildRecord;
 import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
 
+import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.TimeZone;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -21,38 +23,54 @@ public class MetricsExporter {
     private static final Logger LOGGER = Logger.getLogger(MetricsExporter.class.getName());
 
     /**
-     * Export a daily snapshot of metrics to the configured storage backend.
+     * Export a snapshot of the last 24 hours to the configured storage backend, logging rather
+     * than throwing if it fails.
      */
     public static void exportDailySnapshot() {
         DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
         if (config == null || !config.isExportEnabled()) return;
-
+        long now = System.currentTimeMillis();
         try {
-            MetricsStore store = MetricsStore.getInstance();
-            long now = System.currentTimeMillis();
-            long dayAgo = now - 86400_000;
-
-            List<BuildRecord> builds = store.getAllBuilds(dayAgo, now, JobVisibility.excludedForEveryone(config, store));
-            if (builds.isEmpty()) {
-                LOGGER.fine("No builds in last 24h, skipping export");
-                return;
-            }
-
-            String jsonData = buildSnapshot(builds, store, now);
-            String fileName = String.format("dora-metrics/%tF/snapshot.json", new Date(now));
-
-            ExportStorageConfig storageConfig = config.getExportStorage();
-            if (storageConfig == null) {
-                LOGGER.warning("Export enabled but no storage configured");
-                return;
-            }
-
-            storageConfig.upload(jsonData, fileName);
-
-            LOGGER.info("Exported daily snapshot: " + builds.size() + " builds to " + storageConfig.getStorageType());
+            exportFinishedBetween(now - 86400_000, now);
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "Failed to export metrics snapshot", e);
         }
+    }
+
+    /**
+     * Exports the builds that finished after {@code afterMs} and up to {@code untilMs}, to a
+     * file named after the moment of the export so that no export overwrites another.
+     * Throws when the export did not go through, so the caller can try the same window again.
+     *
+     * @return how many builds were exported; 0 when nothing finished in the window
+     */
+    public static int exportFinishedBetween(long afterMs, long untilMs) throws Exception {
+        DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
+        ExportStorageConfig storageConfig = config != null ? config.getExportStorage() : null;
+        if (storageConfig == null) {
+            throw new IllegalStateException("Export enabled but no storage configured");
+        }
+        MetricsStore store = MetricsStore.getInstance();
+        List<BuildRecord> builds = store.getBuildsFinishedBetween(afterMs, untilMs,
+                JobVisibility.excludedForEveryone(config, store));
+        if (builds.isEmpty()) {
+            LOGGER.fine("No builds finished since the last export, nothing to send");
+            return 0;
+        }
+
+        String jsonData = buildSnapshot(builds, store, untilMs);
+        storageConfig.upload(jsonData, fileName(untilMs));
+        LOGGER.info("Exported snapshot: " + builds.size() + " builds to " + storageConfig.getStorageType());
+        return builds.size();
+    }
+
+    static String fileName(long exportedAtMs) {
+        SimpleDateFormat day = new SimpleDateFormat("yyyy-MM-dd");
+        SimpleDateFormat stamp = new SimpleDateFormat("yyyyMMdd'T'HHmmss'Z'");
+        day.setTimeZone(TimeZone.getTimeZone("UTC"));
+        stamp.setTimeZone(TimeZone.getTimeZone("UTC"));
+        Date at = new Date(exportedAtMs);
+        return "dora-metrics/" + day.format(at) + "/snapshot-" + stamp.format(at) + ".json";
     }
 
     /**
