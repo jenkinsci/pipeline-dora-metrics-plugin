@@ -340,6 +340,16 @@ public class MetricsStore {
         return executeCount(fromMs, toMs, jobPattern, "", excludedJobs, branchPattern);
     }
 
+    /**
+     * Builds that ran as a deployment, successfully or not: SUCCESS, UNSTABLE or FAILURE.
+     * An aborted build, one that was never built, or one with no result deployed nothing.
+     */
+    public long countDeployments(long fromMs, long toMs, String jobPattern, Set<String> excludedJobs,
+                                 String branchPattern) {
+        return executeCount(fromMs, toMs, jobPattern, "AND result IN ('SUCCESS', 'UNSTABLE', 'FAILURE')",
+                excludedJobs, branchPattern);
+    }
+
     public long countFailedBuilds(long fromMs, long toMs, String jobPattern) {
         return countFailedBuilds(fromMs, toMs, jobPattern, Collections.emptySet());
     }

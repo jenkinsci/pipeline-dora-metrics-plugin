@@ -154,10 +154,11 @@ public class DoraCalculator {
     }
 
     /**
-     * Change Failure Rate: % of deploys that fail.
+     * Change Failure Rate: failed deployments as a share of all deployments. Aborted and
+     * not-built builds deployed nothing, so they count toward neither.
      */
     public DoraMetric changeFailureRate(long fromMs, long toMs, String jobPattern) {
-        long total = store.countTotalBuilds(fromMs, toMs, jobPattern, excludedJobs, branchPattern());
+        long total = store.countDeployments(fromMs, toMs, jobPattern, excludedJobs, branchPattern());
         if (total == 0) {
             return new DoraMetric("Change Failure Rate", "N/A", DoraBand.LOW, 0);
         }
