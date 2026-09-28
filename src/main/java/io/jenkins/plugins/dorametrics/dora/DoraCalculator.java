@@ -24,9 +24,10 @@ import java.util.stream.Collectors;
 public class DoraCalculator {
 
     public enum DoraBand {
-        ELITE("Elite", "#1a7f37"),
-        HIGH("High", "#2da44e"),
-        MEDIUM("Medium", "#bf8700"),
+        // white text on each colour reaches 4.5:1 contrast
+        ELITE("Elite", "#116329"),
+        HIGH("High", "#1f883d"),
+        MEDIUM("Medium", "#9a6700"),
         LOW("Low", "#cf222e"),
         /** Nothing to rate yet, such as no deployments or no failures in the period. */
         NONE("N/A", "#6e7781");

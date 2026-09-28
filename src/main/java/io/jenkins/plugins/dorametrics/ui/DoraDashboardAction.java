@@ -151,7 +151,8 @@ public class DoraDashboardAction implements RootAction {
         return ".*";
     }
 
-    private int getTopN() {
+    /** How many rows each ranking shows, for the page's script too. */
+    public int getTopN() {
         DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
         return config != null ? config.getDashboardTopN() : 10;
     }
