@@ -185,12 +185,25 @@ final class BuildRecorder {
     private static String getTriggerType(Run<?, ?> run) {
         List<Cause> causes = run.getCauses();
         if (causes.isEmpty()) return "UNKNOWN";
-        Cause cause = causes.get(0);
+        return triggerType(causes.get(0));
+    }
+
+    /**
+     * One of USER, UPSTREAM, TIMER, SCM, REMOTE or OTHER. Plugins bring their own causes, so
+     * the ones for source control events (multibranch indexing and branch events, pushes and
+     * webhooks from the hosting plugins) are recognised by name and counted as SCM.
+     */
+    static String triggerType(Cause cause) {
         if (cause instanceof Cause.UserIdCause) return "USER";
         if (cause instanceof Cause.UpstreamCause) return "UPSTREAM";
+        if (cause instanceof Cause.RemoteCause) return "REMOTE";
         String className = cause.getClass().getSimpleName();
         if (className.contains("Timer")) return "TIMER";
-        if (className.contains("SCM")) return "SCM";
-        return className;
+        if (className.contains("SCM") || className.startsWith("Branch") || className.contains("Push")
+                || className.contains("WebHook") || className.contains("Webhook")
+                || className.contains("PullRequest") || className.contains("MergeRequest")) {
+            return "SCM";
+        }
+        return "OTHER";
     }
 }
