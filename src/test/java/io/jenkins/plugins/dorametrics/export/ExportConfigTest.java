@@ -3,58 +3,64 @@ package io.jenkins.plugins.dorametrics.export;
 import hudson.model.Descriptor;
 import hudson.util.ListBoxModel;
 import jenkins.model.Jenkins;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
-public class ExportConfigTest {
+@WithJenkins
+class ExportConfigTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
+
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
+    }
 
     @Test
-    public void s3DescriptorRegistered() {
+    void s3DescriptorRegistered() {
         Descriptor<?> d = Jenkins.get().getDescriptor(S3ExportConfig.class);
-        assertNotNull("S3ExportConfig descriptor should be registered", d);
+        assertNotNull(d, "S3ExportConfig descriptor should be registered");
         assertEquals("S3-Compatible (AWS S3, Backblaze B2, MinIO)", d.getDisplayName());
     }
 
     @Test
-    public void httpDescriptorRegistered() {
+    void httpDescriptorRegistered() {
         Descriptor<?> d = Jenkins.get().getDescriptor(HttpExportConfig.class);
-        assertNotNull("HttpExportConfig descriptor should be registered", d);
+        assertNotNull(d, "HttpExportConfig descriptor should be registered");
         assertEquals("HTTP Endpoint", d.getDisplayName());
     }
 
     @Test
-    public void s3FillCredentialsReturnsNonNull() {
+    void s3FillCredentialsReturnsNonNull() {
         S3ExportConfig.DescriptorImpl d = (S3ExportConfig.DescriptorImpl)
                 Jenkins.get().getDescriptor(S3ExportConfig.class);
         assertNotNull(d);
 
         ListBoxModel items = d.doFillCredentialsIdItems("");
-        assertNotNull("Credentials list should not be null", items);
+        assertNotNull(items, "Credentials list should not be null");
         // Should have at least the empty value option
-        assertTrue("Should include empty value option", items.size() >= 1);
-        assertEquals("First option should be empty value", "", items.get(0).value);
+        assertFalse(items.isEmpty(), "Should include empty value option");
+        assertEquals("", items.get(0).value, "First option should be empty value");
     }
 
     @Test
-    public void httpFillCredentialsReturnsNonNull() {
+    void httpFillCredentialsReturnsNonNull() {
         HttpExportConfig.DescriptorImpl d = (HttpExportConfig.DescriptorImpl)
                 Jenkins.get().getDescriptor(HttpExportConfig.class);
         assertNotNull(d);
 
         ListBoxModel items = d.doFillCredentialsIdItems("");
-        assertNotNull("Credentials list should not be null", items);
-        assertTrue("Should include empty value option", items.size() >= 1);
-        assertEquals("First option should be empty value", "", items.get(0).value);
+        assertNotNull(items, "Credentials list should not be null");
+        assertFalse(items.isEmpty(), "Should include empty value option");
+        assertEquals("", items.get(0).value, "First option should be empty value");
     }
 
     @Test
-    public void s3ConfigFieldsWork() {
+    void s3ConfigFieldsWork() {
         S3ExportConfig config = new S3ExportConfig();
         config.setEndpoint("https://s3.us-east-005.backblazeb2.com");
         config.setBucket("my-bucket");
@@ -67,7 +73,7 @@ public class ExportConfigTest {
     }
 
     @Test
-    public void httpConfigFieldsWork() {
+    void httpConfigFieldsWork() {
         HttpExportConfig config = new HttpExportConfig();
         config.setUrl("https://example.com/webhook");
         config.setCredentialsId("http-creds");
@@ -78,7 +84,7 @@ public class ExportConfigTest {
     }
 
     @Test
-    public void s3ExtractsRegionFromEndpoint() {
+    void s3ExtractsRegionFromEndpoint() {
         assertEquals("us-east-005", S3ExportConfig.extractRegion("https://s3.us-east-005.backblazeb2.com"));
         assertEquals("us-west-2", S3ExportConfig.extractRegion("https://s3.us-west-2.amazonaws.com"));
         assertEquals("us-east-1", S3ExportConfig.extractRegion("https://minio.local:9000"));
@@ -87,11 +93,11 @@ public class ExportConfigTest {
     }
 
     @Test
-    public void configClassesImplementUpload() {
+    void configClassesImplementUpload() {
         // Verify the abstract method is implemented (would fail to compile if not)
         S3ExportConfig s3 = new S3ExportConfig();
         HttpExportConfig http = new HttpExportConfig();
-        assertNotNull("S3 config should be an ExportStorageConfig", (ExportStorageConfig) s3);
-        assertNotNull("HTTP config should be an ExportStorageConfig", (ExportStorageConfig) http);
+        assertNotNull(s3, "S3 config should be an ExportStorageConfig");
+        assertNotNull(http, "HTTP config should be an ExportStorageConfig");
     }
 }

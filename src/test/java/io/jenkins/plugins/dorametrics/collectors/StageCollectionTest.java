@@ -9,28 +9,29 @@ import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition;
 import org.jenkinsci.plugins.workflow.graphanalysis.DepthFirstScanner;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.jenkinsci.plugins.workflow.job.WorkflowRun;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Stages are recorded per block that ran, not per name, so a stage name used
  * more than once in a build (parallel branches, a matrix, a loop) keeps every run.
  */
-public class StageCollectionTest {
+@WithJenkins
+class StageCollectionTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         MetricsStore.setInstance(null);
     }
 
@@ -41,7 +42,7 @@ public class StageCollectionTest {
         MetricsStore store = MetricsStore.getInstance();
         long now = System.currentTimeMillis();
         List<BuildRecord> builds = store.getBuilds(job.getFullName(), now - 600_000, now + 1000);
-        assertEquals("build " + run.getNumber() + " recorded", 1, builds.size());
+        assertEquals(1, builds.size(), "build " + run.getNumber() + " recorded");
         return store.getStages(builds.get(0).id);
     }
 
@@ -50,15 +51,16 @@ public class StageCollectionTest {
     }
 
     @Test
-    public void sameStageNameInParallelBranchesKeepsEveryRun() throws Exception {
+    void sameStageNameInParallelBranchesKeepsEveryRun() throws Exception {
         List<StageRecord> stages = stagesOf(
-                "parallel(\n"
-                + "  linux:   { stage('Test') { sleep time: 100, unit: 'MILLISECONDS' } },\n"
-                + "  windows: { stage('Test') { sleep 2 } }\n"
-                + ")", Result.SUCCESS);
+                """
+                        parallel(
+                          linux:   { stage('Test') { sleep time: 100, unit: 'MILLISECONDS' } },
+                          windows: { stage('Test') { sleep 2 } }
+                        )""", Result.SUCCESS);
 
         List<StageRecord> tests = named(stages, "Test");
-        assertEquals("both Test stages are recorded", 2, tests.size());
+        assertEquals(2, tests.size(), "both Test stages are recorded");
         assertEquals(1, named(stages, "Branch: linux").size());
         assertEquals(1, named(stages, "Branch: windows").size());
         assertEquals(4, stages.size());
@@ -66,12 +68,12 @@ public class StageCollectionTest {
         // each stage is timed from its own start to its own end
         long shorter = Math.min(tests.get(0).durationMs, tests.get(1).durationMs);
         long longer = Math.max(tests.get(0).durationMs, tests.get(1).durationMs);
-        assertTrue("long stage took " + longer + "ms", longer >= 2000);
-        assertTrue("stages took " + shorter + "ms and " + longer + "ms", longer - shorter >= 1000);
+        assertTrue(longer >= 2000, "long stage took " + longer + "ms");
+        assertTrue(longer - shorter >= 1000, "stages took " + shorter + "ms and " + longer + "ms");
     }
 
     @Test
-    public void sameStageNameInALoopKeepsEveryRun() throws Exception {
+    void sameStageNameInALoopKeepsEveryRun() throws Exception {
         List<StageRecord> stages = stagesOf(
                 "for (int i = 0; i < 3; i++) { stage('Deploy') { echo \"run ${i}\" } }", Result.SUCCESS);
         assertEquals(3, named(stages, "Deploy").size());
@@ -79,12 +81,13 @@ public class StageCollectionTest {
     }
 
     @Test
-    public void failureIsRecordedOnTheStageThatFailedOnly() throws Exception {
+    void failureIsRecordedOnTheStageThatFailedOnly() throws Exception {
         List<StageRecord> stages = stagesOf(
-                "parallel(\n"
-                + "  good: { stage('Test') { echo 'fine' } },\n"
-                + "  bad:  { stage('Test') { error 'boom' } }\n"
-                + ")", Result.FAILURE);
+                """
+                        parallel(
+                          good: { stage('Test') { echo 'fine' } },
+                          bad:  { stage('Test') { error 'boom' } }
+                        )""", Result.FAILURE);
 
         List<StageRecord> tests = named(stages, "Test");
         assertEquals(2, tests.size());
@@ -95,7 +98,7 @@ public class StageCollectionTest {
     }
 
     @Test
-    public void nestedAndSequentialStagesAreUnchanged() throws Exception {
+    void nestedAndSequentialStagesAreUnchanged() throws Exception {
         List<StageRecord> stages = stagesOf(
                 "stage('Build') { echo 'b' }\n"
                 + "stage('Release') { stage('Publish') { echo 'p' } }", Result.SUCCESS);
@@ -106,19 +109,20 @@ public class StageCollectionTest {
     }
 
     @Test
-    public void labelledStepIsNotAStage() throws Exception {
+    void labelledStepIsNotAStage() throws Exception {
         WorkflowJob job = j.createProject(WorkflowJob.class, "labelled");
         job.setDefinition(new CpsFlowDefinition(
-                "node { stage('Build') {\n"
-                + "  if (isUnix()) { sh label: 'compile', script: 'true' } else { bat label: 'compile', script: 'exit 0' }\n"
-                + "} }", true));
+                """
+                        node { stage('Build') {
+                          if (isUnix()) { sh label: 'compile', script: 'true' } else { bat label: 'compile', script: 'exit 0' }
+                        } }""", true));
         WorkflowRun run = j.buildAndAssertSuccess(job);
 
         // the step really carries a label, so this is not passing by accident
         boolean labelled = new DepthFirstScanner().allNodes(run.getExecution()).stream()
                 .map(n -> n.getAction(LabelAction.class))
                 .anyMatch(a -> a != null && "compile".equals(a.getDisplayName()));
-        assertTrue("the shell step has a label", labelled);
+        assertTrue(labelled, "the shell step has a label");
 
         MetricsStore store = MetricsStore.getInstance();
         long now = System.currentTimeMillis();

@@ -4,11 +4,11 @@ import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.store.MetricsMaintenanceTask;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import hudson.model.TaskListener;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -20,25 +20,24 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * An export endpoint that accepts the connection and never answers must not hold the
  * plugin's maintenance hostage: the upload gives up, and retention runs regardless.
  */
-public class ExportTimeoutTest {
+@WithJenkins
+class ExportTimeoutTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     private ServerSocket silent;
     private final List<Socket> held = new ArrayList<>();
     private ExecutorService pool;
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeEach
+    void setUp(JenkinsRule rule) throws Exception {
+        j = rule;
         System.setProperty(ExportHttp.TIMEOUT_PROPERTY, "2");
         silent = new ServerSocket(0);
         pool = Executors.newCachedThreadPool();
@@ -54,8 +53,8 @@ public class ExportTimeoutTest {
         });
     }
 
-    @After
-    public void tearDown() throws Exception {
+    @AfterEach
+    void tearDown() throws Exception {
         System.clearProperty(ExportHttp.TIMEOUT_PROPERTY);
         silent.close();
         for (Socket s : held) {
@@ -69,7 +68,7 @@ public class ExportTimeoutTest {
     }
 
     @Test
-    public void anHttpUploadToASilentEndpointGivesUp() throws Exception {
+    void anHttpUploadToASilentEndpointGivesUp() throws Exception {
         HttpExportConfig http = new HttpExportConfig();
         http.setUrl(silentUrl() + "/hook");
         Future<?> upload = pool.submit(() -> {
@@ -80,14 +79,14 @@ public class ExportTimeoutTest {
             upload.get(30, TimeUnit.SECONDS);
             fail("a silent endpoint cannot have accepted the upload");
         } catch (java.util.concurrent.ExecutionException expected) {
-            assertTrue(expected.getCause() instanceof IOException);
+            assertInstanceOf(IOException.class, expected.getCause());
         } catch (java.util.concurrent.TimeoutException hung) {
             fail("the upload is still waiting on an endpoint that will never answer");
         }
     }
 
     @Test
-    public void anS3UploadToASilentEndpointGivesUp() throws Exception {
+    void anS3UploadToASilentEndpointGivesUp() throws Exception {
         S3ExportConfig s3 = new S3ExportConfig();
         s3.setEndpoint(silentUrl());
         s3.setBucket("dora");
@@ -99,14 +98,14 @@ public class ExportTimeoutTest {
             upload.get(30, TimeUnit.SECONDS);
             fail("a silent endpoint cannot have accepted the upload");
         } catch (java.util.concurrent.ExecutionException expected) {
-            assertTrue(expected.getCause() instanceof IOException);
+            assertInstanceOf(IOException.class, expected.getCause());
         } catch (java.util.concurrent.TimeoutException hung) {
             fail("the upload is still waiting on an endpoint that will never answer");
         }
     }
 
     @Test
-    public void retentionRunsEvenWhileTheExportEndpointHangs() throws Exception {
+    void retentionRunsEvenWhileTheExportEndpointHangs() {
         System.setProperty(ExportHttp.TIMEOUT_PROPERTY, "600");
         MetricsStore.setInstance(null);
         MetricsStore store = MetricsStore.getInstance();
@@ -128,11 +127,9 @@ public class ExportTimeoutTest {
             execute.invoke(task, TaskListener.NULL);
             return null;
         });
-        try {
+        assertDoesNotThrow(() -> {
             run.get(30, TimeUnit.SECONDS);
-        } catch (java.util.concurrent.TimeoutException hung) {
-            fail("maintenance is stuck behind the export");
-        }
-        assertEquals("the year-old build is past retention", 0, store.getBuilds("old", 0, now).size());
+        }, "maintenance is stuck behind the export");
+        assertEquals(0, store.getBuilds("old", 0, now).size(), "the year-old build is past retention");
     }
 }
