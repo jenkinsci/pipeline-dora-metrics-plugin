@@ -1,7 +1,9 @@
 package io.jenkins.plugins.dorametrics.store;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import jenkins.model.Jenkins;
 
+import javax.annotation.processing.SupportedAnnotationTypes;
 import java.io.File;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -33,6 +35,7 @@ public class MetricsStore {
 
     private final String dbUrl;
 
+    @SuppressFBWarnings("RV_RETURN_VALUE_IGNORED_BAD_PRACTICE")
     private MetricsStore() {
         File jenkinsHome = Jenkins.get().getRootDir();
         File dbDir = new File(jenkinsHome, "pipeline-dora-metrics");
