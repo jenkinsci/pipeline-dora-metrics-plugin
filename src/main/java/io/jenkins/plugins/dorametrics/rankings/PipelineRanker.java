@@ -66,19 +66,19 @@ public class PipelineRanker {
         Map<String, List<BuildRecord>> previous = groupByJob(previousFrom, previousTo);
         List<RankedPipeline> ranked = new ArrayList<>();
 
-        for (String jobName : current.keySet()) {
-            if (!previous.containsKey(jobName)) continue;
+        for (Map.Entry<String, List<BuildRecord>> entry : current.entrySet()) {
+            if (!previous.containsKey(entry.getKey())) continue;
 
-            double currentAvg = current.get(jobName).stream()
+            double currentAvg = current.get(entry.getKey()).stream()
                     .mapToLong(b -> b.durationMs).average().orElse(0);
-            double previousAvg = previous.get(jobName).stream()
+            double previousAvg = previous.get(entry.getKey()).stream()
                     .mapToLong(b -> b.durationMs).average().orElse(0);
             if (previousAvg <= 0) continue;
 
             double improvement = ((previousAvg - currentAvg) / previousAvg) * 100;
             if (improvement <= 0) continue; // slower or unchanged is not an improvement
-            ranked.add(new RankedPipeline(jobName, improvement,
-                    String.format(Locale.ROOT, "%+.1f%%", -improvement), current.get(jobName).size()));
+            ranked.add(new RankedPipeline(entry.getKey(), improvement,
+                    String.format(Locale.ROOT, "%+.1f%%", -improvement), entry.getValue().size()));
         }
 
         ranked.sort((a, b) -> Double.compare(b.value, a.value));

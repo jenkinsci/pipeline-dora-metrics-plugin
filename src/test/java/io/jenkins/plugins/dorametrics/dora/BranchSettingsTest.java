@@ -4,31 +4,32 @@ import hudson.model.FreeStyleProject;
 import hudson.slaves.EnvironmentVariablesNodeProperty;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.util.Collections;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * "Production Branch Pattern" and "Track All Branches" decide which builds count for the four
  * DORA metrics. With Track All Branches off, a build counts only when its branch matches the
  * pattern, or when it has no branch at all, such as a deploy job without SCM.
  */
-public class BranchSettingsTest {
+@WithJenkins
+class BranchSettingsTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     private MetricsStore store;
     private DoraGlobalConfiguration config;
     private long now;
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         MetricsStore.setInstance(null);
         store = MetricsStore.getInstance();
         config = DoraGlobalConfiguration.get();
@@ -49,7 +50,7 @@ public class BranchSettingsTest {
     }
 
     @Test
-    public void onlyProductionBranchesCountWhenTrackAllBranchesIsOff() {
+    void onlyProductionBranchesCountWhenTrackAllBranchesIsOff() {
         long mainBuild = build(1, "main", "SUCCESS");
         build(2, "feature-x", "FAILURE");
         build(3, "PR-7", "FAILURE");
@@ -62,12 +63,12 @@ public class BranchSettingsTest {
         assertEquals("0.0%", calc().changeFailureRate(from, now, ".*").displayValue);
         assertEquals(1.0, calc().deploymentFrequency(from, now, ".*").rawValue, 1e-9);
         assertEquals("N/A", calc().meanTimeToRestore(from, now, ".*").displayValue);
-        assertEquals("only the main build's commit counts", 3_600_000L + 60_000L + 1000,
-                calc().leadTimeForChanges(from, now, ".*").rawValue, 1.0);
+        assertEquals(3_600_000L + 60_000L + 1000, calc().leadTimeForChanges(from, now, ".*").rawValue,
+                1.0, "only the main build's commit counts");
     }
 
     @Test
-    public void everyBranchCountsWhenTrackAllBranchesIsOn() {
+    void everyBranchCountsWhenTrackAllBranchesIsOn() {
         build(1, "main", "SUCCESS");
         build(2, "feature-x", "FAILURE");
         build(3, "PR-7", "FAILURE");
@@ -78,7 +79,7 @@ public class BranchSettingsTest {
     }
 
     @Test
-    public void aBuildWithoutABranchStillCounts() {
+    void aBuildWithoutABranchStillCounts() {
         build(1, null, "SUCCESS");
         build(2, "feature-x", "FAILURE");
         onlyProductionBranches("main");
@@ -88,7 +89,7 @@ public class BranchSettingsTest {
     }
 
     @Test
-    public void aPatternWithSlashesMatchesTheWholeBranchName() {
+    void aPatternWithSlashesMatchesTheWholeBranchName() {
         build(1, "main", "SUCCESS");
         build(2, "release/1.2", "FAILURE");
         build(3, "feature/login", "FAILURE");
@@ -98,7 +99,7 @@ public class BranchSettingsTest {
     }
 
     @Test
-    public void theRecordedBranchKeepsItsPath() throws Exception {
+    void theRecordedBranchKeepsItsPath() throws Exception {
         // A build's environment starts from the controller's own, and a CI run of these tests
         // has BRANCH_NAME set, which is read before GIT_BRANCH. Clear it for this build.
         EnvironmentVariablesNodeProperty env = new EnvironmentVariablesNodeProperty(
