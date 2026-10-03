@@ -17,6 +17,7 @@ import java.util.stream.Collectors;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class BuildHistoryImporterTest {
@@ -250,6 +251,37 @@ public class BuildHistoryImporterTest {
         assertEquals("and left alone when it already fits", 90, BuildHistoryImporter.resolveDays(config));
     }
 
+    /**
+     * The endpoint reports that an import started, so the slot must be taken by the time
+     * it answers. If it were only taken when the submitted task begins, a caller polling
+     * straight afterwards would see "not running" and read the previous run's counters as
+     * though they were this run's.
+     */
+    @Test
+    public void reserveIsHeldUntilReleased() {
+        assertTrue("the first caller takes the slot", BuildHistoryImporter.reserve());
+        assertTrue("and it reads as running", BuildHistoryImporter.isRunning());
+        assertTrue("a second caller is turned away", !BuildHistoryImporter.reserve());
+
+        BuildHistoryImporter.release();
+
+        assertTrue("released", !BuildHistoryImporter.isRunning());
+        assertTrue("and the slot is free again", BuildHistoryImporter.reserve());
+        BuildHistoryImporter.release();
+    }
+
+    /** A synchronous import must not start while one is already reserved. */
+    @Test
+    public void importHistoryRefusesWhileAnotherIsRunning() {
+        assertTrue(BuildHistoryImporter.reserve());
+        try {
+            assertNull("should refuse rather than run concurrently",
+                    BuildHistoryImporter.importHistory(30));
+        } finally {
+            BuildHistoryImporter.release();
+        }
+    }
+
     @Test
     public void reportsCountersAndIsNotRunningAfterwards() throws Exception {
         FreeStyleProject job = j.createFreeStyleProject("counted-job");
@@ -264,5 +296,34 @@ public class BuildHistoryImporterTest {
         assertEquals("last result should be kept for the status endpoint",
                 result.toString(), BuildHistoryImporter.getLastResult().toString());
         assertTrue("the flag must be cleared when the run ends", !BuildHistoryImporter.isRunning());
+    }
+
+    /**
+     * An import run from the dashboard has to set the flag as well. Without it the automatic
+     * task still walks the whole instance later, for history that has already been imported
+     * by hand.
+     */
+    @Test
+    public void anOnDemandRunMarksTheImportDone() throws Exception {
+        FreeStyleProject job = j.createFreeStyleProject("on-demand-job");
+        j.buildAndAssertSuccess(job);
+
+        DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
+        assertNotNull(config);
+        assertTrue("nothing has marked it yet", !config.isHistoryImportDone());
+
+        assertTrue("the import should have started", BuildHistoryImporter.startAsync(30));
+        waitForTheImportToFinish();
+
+        assertTrue("an on demand run that stored something marks the import done",
+                config.isHistoryImportDone());
+    }
+
+    /** The flag is set before the slot is released, so this does not race it. */
+    private void waitForTheImportToFinish() throws Exception {
+        for (int i = 0; i < 100 && BuildHistoryImporter.isRunning(); i++) {
+            Thread.sleep(100);
+        }
+        assertTrue("the import should have finished", !BuildHistoryImporter.isRunning());
     }
 }

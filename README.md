@@ -12,6 +12,12 @@ A Jenkins plugin that tracks all four DORA metrics, pipeline analytics, rankings
 - Mean Time to Restore (failure to recovery)
 - Change Failure Rate (% failed deployments)
 
+**Build History Import**
+- Imports builds already on disk, once, the first time the plugin runs, so a new install is not an empty dashboard
+- Recovers builds that a job filter excluded at the time, which widening the filter alone cannot do
+- Re-runnable on demand from the dashboard by an administrator
+- Imported builds get the same stage and commit collection as builds recorded live
+
 **Pipeline Rankings and Stage Analytics**
 
 ![Pipeline Rankings and Stage Analytics](docs/dora-rankings-stages.png)
@@ -63,6 +69,8 @@ GET /dora-api/overview?days=30          All 4 DORA metrics
 GET /dora-api/pipelines?days=30&limit=10   Pipeline rankings
 GET /dora-api/trends?days=90&job=my-pipeline   Time-series trend data
 GET /dora-api/export?days=90&format=csv    CSV/JSON bulk export
+POST /dora-api/importHistory               Start a build history import (Administer)
+GET /dora-api/importStatus                 Counters for the running or last import (Administer)
 ```
 
 ## How It Works
@@ -85,6 +93,32 @@ The plugin uses a `RunListener` to automatically capture build data after every 
 | Large (200 jobs) | 1000 | ~70MB |
 | Enterprise (1000 jobs) | 5000 | ~350MB |
 
+### Build history import
+
+Builds are normally recorded by a `RunListener` as they finish, so nothing that ran before
+the plugin was installed is in the store. The first time the plugin runs it imports the
+builds already on disk, going back **Build History Import (days)**, capped at the retention
+window.
+
+It walks every job newest first and stops at the cutoff, skips builds that are still
+running, and skips builds already recorded rather than rewriting them. Job filters apply
+exactly as they do for live builds, so an excluded job stays excluded. Whether the import
+has run is stored in the configuration, so a restart does not scan again.
+
+An administrator can run it again from **Import history** on the dashboard. There are two
+reasons to. Raising **Build History Import (days)** does not reach back on its own, so a
+dashboard asked for a year while only thirty days were imported stays empty behind those
+thirty days until the import is run again. Widening a job filter has the same problem: a
+build that did not match when it ran was never recorded, and widening the pattern alone
+does not bring it back.
+
+Re-running still walks every job and loads every build inside the window; what it skips is
+the writing, for builds already recorded. So it is safe to run again, but not free, and on a
+large instance it is worth leaving to the window you actually need.
+
+An import can only read what Jenkins still has on disk. A job whose build discarder has
+already removed old builds cannot be recovered.
+
 ## Configuration
 
 Navigate to **Manage Jenkins > System** and scroll to the **Pipeline DORA Metrics** section.
@@ -97,13 +131,12 @@ Navigate to **Manage Jenkins > System** and scroll to the **Pipeline DORA Metric
 - **Production Branch Pattern:** Regex for branches that count as production (e.g., `main|master|release/.*`)
 
 **Build History Import:**
-
 The import runs once per instance, not once per fresh install. An instance that already had
 the plugin and upgrades to this version has nothing recorded from before the upgrade either,
 so it imports roughly five minutes after restarting. Builds already in the store are skipped,
 so on an instance that has been collecting for a while the run finds little to do.
 
-- **Build History Import (days):** How much existing build history to import. Default: `30`. Capped at the retention window, so it never imports builds the next cleanup would delete. This is not the same as the dashboard date range: the range only displays what has already been imported, so asking the dashboard for a year while this is set to 30 shows thirty days of data and nothing behind it. The import runs once, so set this before it runs.
+- **Build History Import (days):** How much existing build history to import. Default: `30`. Capped at the retention window, so it never imports builds the next cleanup would delete. This is not the same as the dashboard date range: the range only displays what has already been imported, so asking the dashboard for a year while this is set to 30 shows thirty days of data and nothing behind it. The import runs once on its own. To cover more history later, raise this and use **Import history** on the dashboard.
 
 **DORA Thresholds:** Customize the Elite/High/Medium/Low band boundaries for each metric to match your team's standards.
 
@@ -113,6 +146,8 @@ so on an instance that has been collecting for a while the run finds little to d
 io.jenkins.plugins.dorametrics/
 ├── collectors/
 │   ├── BuildDataCollector      # RunListener - captures builds, stages, commits
+│   ├── BuildHistoryImporter    # Imports builds already on disk
+│   ├── HistoryImportTask       # Runs the first import, once per instance
 │   └── JobRenameListener       # ItemListener - tracks job renames/moves
 ├── dora/
 │   └── DoraCalculator          # Computes all 4 DORA metrics (SQL-optimized)
@@ -138,7 +173,9 @@ io.jenkins.plugins.dorametrics/
 
 ## Security
 
-- All API endpoints require Jenkins READ permission
+- Read-only API endpoints require Jenkins READ permission
+- The build history import endpoints require Jenkins ADMINISTER, and starting an import is POST only
+- The import status returns counters only, never job names
 - Dashboard rankings filtered by Item.READ (users only see jobs they can access)
 - Export credentials managed through Jenkins Credentials plugin (encrypted, auditable)
 - SQL queries use parameterized statements (no SQL injection)
@@ -149,7 +186,6 @@ io.jenkins.plugins.dorametrics/
 
 **v1.1 (Planned)**
 - Additional export backends (GCS, Azure Blob) and IAM role support for S3
-- Historical build import (backfill metrics from existing Jenkins build history)
 - Grafana dashboard template (JSON) that consumes the REST API
 
 **v1.2 (Planned)**

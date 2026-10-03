@@ -23,6 +23,10 @@
                         <button id="dora-apply-date" class="jenkins-button">Apply</button>
                     </div>
                     <a class="jenkins-button" href="${rootURL}/dora-api/export?format=csv" download="dora-metrics.csv">Export CSV</a>
+                    <j:if test="${it.canImport}">
+                        <button id="dora-import-btn" class="jenkins-button">Import history</button>
+                        <span id="dora-import-status" class="dora-import-status"></span>
+                    </j:if>
                 </div>
             </l:app-bar>
 
