@@ -105,7 +105,7 @@ public class DoraApiAction implements RootAction {
                                   @QueryParameter(value = "to") String toParam,
                                   @QueryParameter(value = "tz") String tzParam) {
         Jenkins.get().checkPermission(Jenkins.READ);
-        Period period = Period.of(daysParam, fromParam, toParam, tzParam, 30, System.currentTimeMillis());
+        Period period = period(daysParam, fromParam, toParam, tzParam, 30);
         int days = period.days;
         long toMs = period.toMs;
         long fromMs = period.fromMs;
@@ -127,12 +127,12 @@ public class DoraApiAction implements RootAction {
     @GET
     public HttpResponse doPipelines(@QueryParameter(value = "days") String daysParam,
                                      @QueryParameter(value = "limit") String limitParam,
-                                  @QueryParameter(value = "from") String fromParam,
-                                  @QueryParameter(value = "to") String toParam,
-                                  @QueryParameter(value = "tz") String tzParam) {
+                                     @QueryParameter(value = "from") String fromParam,
+                                     @QueryParameter(value = "to") String toParam,
+                                     @QueryParameter(value = "tz") String tzParam) {
         Jenkins.get().checkPermission(Jenkins.READ);
-        Period period = Period.of(daysParam, fromParam, toParam, tzParam, 30, System.currentTimeMillis());
-        int limit = DurationFormatter.parseLimit(limitParam, 10);
+        Period period = period(daysParam, fromParam, toParam, tzParam, 30);
+        int limit = rankingLimit(limitParam);
         long toMs = period.toMs;
         long fromMs = period.fromMs;
 
@@ -159,8 +159,8 @@ public class DoraApiAction implements RootAction {
                                  @QueryParameter(value = "to") String toParam,
                                  @QueryParameter(value = "tz") String tzParam) {
         Jenkins.get().checkPermission(Jenkins.READ);
-        Period period = Period.of(daysParam, fromParam, toParam, tzParam, 30, System.currentTimeMillis());
-        int limit = DurationFormatter.parseLimit(limitParam, 10);
+        Period period = period(daysParam, fromParam, toParam, tzParam, 30);
+        int limit = rankingLimit(limitParam);
         PipelineRanker ranker = new PipelineRanker();
         JSONObject json = new JSONObject();
         json.put("period_days", period.days);
@@ -194,7 +194,7 @@ public class DoraApiAction implements RootAction {
                                   @QueryParameter(value = "to") String toParam,
                                   @QueryParameter(value = "tz") String tzParam) {
         Jenkins.get().checkPermission(Jenkins.READ);
-        Period period = Period.of(daysParam, fromParam, toParam, tzParam, 90, System.currentTimeMillis());
+        Period period = period(daysParam, fromParam, toParam, tzParam, 90);
 
         MetricsStore store = MetricsStore.getInstance();
         boolean singleJob = jobName != null && !jobName.isEmpty();
@@ -210,7 +210,7 @@ public class DoraApiAction implements RootAction {
                 .collect(Collectors.groupingBy(b -> Instant.ofEpochMilli(b.timestamp).atZone(period.zone).toLocalDate()));
 
         DoraCalculator calc = singleJob
-                ? new DoraCalculator(store, DoraGlobalConfiguration.get(), java.util.Collections.emptySet())
+                ? new DoraCalculator(store, DoraGlobalConfiguration.get(), java.util.Collections.emptySet()).forJob(jobName)
                 : new DoraCalculator();
         String pattern = singleJob ? "^" + java.util.regex.Pattern.quote(jobName) + "$" : getPattern();
         Map<LocalDate, DoraCalculator.Day> dora = calc.dailyMetrics(period.fromMs, period.toMs, pattern, period.zone);
@@ -224,7 +224,7 @@ public class DoraApiAction implements RootAction {
             point.put("successful", dateBuilds.stream().filter(BuildRecord::isSuccess).count());
             point.put("failed", dateBuilds.stream().filter(BuildRecord::isFailure).count());
             point.put("avg_duration_ms", dateBuilds.stream().mapToLong(b -> b.durationMs).average().orElse(0));
-            point.put("deployments", day.deployments);
+            point.put("deployments", day.deployments());
             point.put("change_failure_rate", orNull(day.changeFailureRate()));
             point.put("lead_time_ms", orNull(day.leadTimeMs()));
             point.put("restore_time_ms", orNull(day.restoreTimeMs()));
@@ -246,7 +246,7 @@ public class DoraApiAction implements RootAction {
                                   @QueryParameter(value = "to") String toParam,
                                   @QueryParameter(value = "tz") String tzParam) {
         Jenkins.get().checkPermission(Jenkins.READ);
-        Period period = Period.of(daysParam, fromParam, toParam, tzParam, 90, System.currentTimeMillis());
+        Period period = period(daysParam, fromParam, toParam, tzParam, 90);
         int days = period.days;
         long toMs = period.toMs;
         long fromMs = period.fromMs;
@@ -297,6 +297,24 @@ public class DoraApiAction implements RootAction {
         json.put("builds", arr);
 
         return new org.kohsuke.stapler.json.JsonHttpResponse(json, 200);
+    }
+
+    private static Period period(String days, String from, String to, String tz, int defaultDays) {
+        try {
+            return Period.of(days, from, to, tz, defaultDays, System.currentTimeMillis());
+        } catch (IllegalArgumentException e) {
+            throw org.kohsuke.stapler.HttpResponses.error(400, e.getMessage());
+        }
+    }
+
+    /**
+     * How many rankings to return. The dashboard asks for its Top N setting, which may be set
+     * above the usual cap, and has to get as many rows as it rendered on first load.
+     */
+    private static int rankingLimit(String limitParam) {
+        DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
+        int max = Math.max(100, config != null ? config.getDashboardTopN() : 10);
+        return DurationFormatter.parseLimit(limitParam, 10, max);
     }
 
     /** A JSON null for a missing value; putting a Java null would drop the key instead. */

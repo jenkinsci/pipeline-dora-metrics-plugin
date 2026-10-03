@@ -45,6 +45,8 @@ public class DoraCalculator {
     private final DoraGlobalConfiguration config;
     // Jobs left out of every calculation, resolved once per calculator.
     private final Set<String> excludedJobs;
+    /** Set for a single job's figures, which can then be read by job name rather than by pattern. */
+    private String onlyJob;
 
     public DoraCalculator() {
         this(MetricsStore.getInstance(), DoraGlobalConfiguration.get());
@@ -111,7 +113,7 @@ public class DoraCalculator {
      * lands inside the window. One that is still open is not counted: it has no end yet.
      */
     public DoraMetric meanTimeToRestore(long fromMs, long toMs, String jobPattern) {
-        List<Long> restoreTimes = restores(fromMs, toMs, jobPattern).stream()
+        List<Long> restoreTimes = restores(buildsFor(fromMs, toMs, jobPattern), fromMs).stream()
                 .map(r -> r[1]).collect(Collectors.toList());
 
         if (restoreTimes.isEmpty()) {
@@ -164,10 +166,13 @@ public class DoraCalculator {
      * pattern, and the production branches when only those count.
      */
     private List<BuildRecord> buildsFor(long fromMs, long toMs, String jobPattern) {
-        List<BuildRecord> builds = store.getAllBuilds(fromMs, toMs, excludedJobs);
-        if (!".*".equals(jobPattern) && jobPattern != null) {
+        List<BuildRecord> builds = onlyJob != null
+                ? store.getBuilds(onlyJob, fromMs, toMs)
+                : store.getAllBuilds(fromMs, toMs, excludedJobs);
+        if (!".*".equals(jobPattern) && jobPattern != null && !builds.isEmpty()) {
+            java.util.regex.Pattern job = java.util.regex.Pattern.compile(jobPattern);
             builds = builds.stream()
-                    .filter(b -> b.jobName.matches(jobPattern))
+                    .filter(b -> job.matcher(b.jobName).matches())
                     .collect(Collectors.toList());
         }
         String branchPattern = branchPattern();
@@ -180,11 +185,11 @@ public class DoraCalculator {
     }
 
     /**
-     * Every recovery in the window as {@code [start of the fixing build, time to restore]}: from
-     * the first failure of a run of failures until the build that fixed it finished.
+     * Every recovery among {@code builds} as {@code [start of the fixing build, time to restore]}:
+     * from the first failure of a run of failures until the build that fixed it finished.
      */
-    private List<long[]> restores(long fromMs, long toMs, String jobPattern) {
-        Map<String, List<BuildRecord>> byJob = buildsFor(fromMs, toMs, jobPattern).stream()
+    private List<long[]> restores(List<BuildRecord> builds, long fromMs) {
+        Map<String, List<BuildRecord>> byJob = builds.stream()
                 .collect(Collectors.groupingBy(b -> b.jobName));
         Map<String, Long> openAtStart = store.failureStreaksOpenAt(fromMs, excludedJobs, branchPattern());
 
@@ -205,15 +210,28 @@ public class DoraCalculator {
         return restores;
     }
 
+    /**
+     * Narrows this calculator's daily figures to one job, read by its name. The job pattern
+     * passed alongside still has to match only that job.
+     */
+    public DoraCalculator forJob(String jobName) {
+        this.onlyJob = jobName;
+        return this;
+    }
+
     /** The four metrics for one day, as the cards show them for a whole period. */
     public static final class Day {
-        public int deployments;
-        public int deploymentAttempts;
-        public int failures;
+        private int deployments;
+        private int deploymentAttempts;
+        private int failures;
         private long leadTimeTotal;
         private int leadTimeCount;
         private long restoreTotal;
         private int restoreCount;
+
+        public int deployments() {
+            return deployments;
+        }
 
         /** Failed deployments as a percentage of deployments, or null with none that day. */
         public Double changeFailureRate() {
@@ -239,7 +257,8 @@ public class DoraCalculator {
         for (LocalDate d = Instant.ofEpochMilli(fromMs).atZone(zone).toLocalDate(); !d.isAfter(last); d = d.plusDays(1)) {
             days.put(d, new Day());
         }
-        for (BuildRecord b : buildsFor(fromMs, toMs, jobPattern)) {
+        List<BuildRecord> builds = buildsFor(fromMs, toMs, jobPattern);
+        for (BuildRecord b : builds) {
             Day day = days.get(Instant.ofEpochMilli(b.timestamp).atZone(zone).toLocalDate());
             if (day == null) continue;
             if (b.isSuccess()) day.deployments++;
@@ -252,7 +271,7 @@ public class DoraCalculator {
             day.leadTimeTotal += lead[1];
             day.leadTimeCount++;
         }
-        for (long[] restore : restores(fromMs, toMs, jobPattern)) {
+        for (long[] restore : restores(builds, fromMs)) {
             Day day = days.get(Instant.ofEpochMilli(restore[0]).atZone(zone).toLocalDate());
             if (day == null) continue;
             day.restoreTotal += restore[1];

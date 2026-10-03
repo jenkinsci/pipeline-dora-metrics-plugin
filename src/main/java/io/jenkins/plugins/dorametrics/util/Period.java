@@ -10,6 +10,7 @@ import java.time.temporal.ChronoUnit;
 /**
  * The period an API request asks about: either the last {@code days} days, or the calendar
  * days {@code from} to {@code to}, both included, in the viewer's time zone {@code tz}.
+ * A range never runs past today, and a range given only in part is refused.
  */
 public final class Period {
 
@@ -37,12 +38,20 @@ public final class Period {
         ZoneId zone = zone(tzParam);
         LocalDate from = date(fromParam);
         LocalDate to = date(toParam);
-        if (from != null && to != null) {
+        boolean range = !isEmpty(fromParam) || !isEmpty(toParam);
+        if (range && (from == null || to == null)) {
+            throw new IllegalArgumentException("from and to must both be dates, as YYYY-MM-DD");
+        }
+        if (range) {
             if (to.isBefore(from)) {
                 LocalDate swap = from;
                 from = to;
                 to = swap;
             }
+            // days that have not happened yet would only dilute the per-day figures
+            LocalDate today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate();
+            if (to.isAfter(today)) to = today;
+            if (from.isAfter(today)) from = today;
             if (ChronoUnit.DAYS.between(from, to) >= MAX_DAYS) {
                 from = to.minusDays(MAX_DAYS - 1);
             }
@@ -65,10 +74,16 @@ public final class Period {
         return ZoneId.systemDefault();
     }
 
+    private static boolean isEmpty(String value) {
+        return value == null || value.isEmpty();
+    }
+
     private static LocalDate date(String value) {
-        if (value == null || value.isEmpty()) return null;
+        if (isEmpty(value)) return null;
         try {
-            return LocalDate.parse(value);
+            LocalDate date = LocalDate.parse(value);
+            // ISO dates allow signed years far beyond what fits in epoch milliseconds
+            return date.getYear() < 1 || date.getYear() > 9999 ? null : date;
         } catch (DateTimeParseException e) {
             return null;
         }

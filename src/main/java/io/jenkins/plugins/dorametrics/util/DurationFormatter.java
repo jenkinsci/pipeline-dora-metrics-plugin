@@ -35,10 +35,14 @@ public final class DurationFormatter {
     }
 
     public static int parseLimit(String param, int defaultVal) {
+        return parseLimit(param, defaultVal, 100);
+    }
+
+    public static int parseLimit(String param, int defaultVal, int max) {
         if (param == null || param.isEmpty()) return defaultVal;
         try {
             int val = Integer.parseInt(param);
-            return Math.max(1, Math.min(val, 100));
+            return Math.max(1, Math.min(val, max));
         } catch (NumberFormatException e) {
             return defaultVal;
         }
