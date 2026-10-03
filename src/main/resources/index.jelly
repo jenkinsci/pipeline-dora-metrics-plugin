@@ -1,6 +1,7 @@
 <?jelly escape-by-default='true'?>
 <div>
-    DORA metrics, pipeline analytics, rankings, and trend analysis for Jenkins pipelines.
-    Tracks all four DORA metrics (Deployment Frequency, Lead Time, MTTR, Change Failure Rate),
-    identifies slowest and most failing pipelines, and provides stage-level insights.
+    DORA metrics and pipeline metrics for Jenkins, worked out from the builds you already run.
+    Tracks deployment frequency, lead time, time to restore and change failure rate, ranks
+    failing and slow pipelines and stages, and keeps everything in an embedded database with
+    a REST API and CSV export.
 </div>

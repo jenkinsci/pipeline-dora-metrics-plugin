@@ -17,7 +17,7 @@
     <packaging>hpi</packaging>
 
     <name>Pipeline DORA Metrics</name>
-    <description>DORA metrics, pipeline analytics, rankings, and trend analysis for Jenkins pipelines</description>
+    <description>DORA metrics and pipeline metrics for Jenkins, with rankings of failing pipelines and slow stages, from the builds you already run</description>
     <url>https://github.com/jenkinsci/pipeline-dora-metrics-plugin</url>
 
     <licenses>
