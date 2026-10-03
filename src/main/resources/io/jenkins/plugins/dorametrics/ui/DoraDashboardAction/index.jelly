@@ -170,8 +170,8 @@ GET /dora-api/stages?days=30&amp;limit=10     Stage rankings
 GET /dora-api/trends?days=90&amp;job=my-pipe  Daily builds and DORA metrics
 GET /dora-api/export?days=90&amp;format=csv   CSV/JSON export
 
-Instead of days, from=YYYY-MM-DD&amp;to=YYYY-MM-DD for a date range, and
-tz=Region/City to count days in that time zone.</pre>
+Instead of days, from=YYYY-MM-DD&amp;to=YYYY-MM-DD for a date range up to
+today, and tz=Region/City to count days in that time zone.</pre>
                 </div>
             </div>
         </div>

@@ -21,6 +21,10 @@ class PeriodTest {
                 () -> Period.of(null, "2026-01-01", "+999999999-12-31", "UTC", 30, NOW));
         assertThrows(IllegalArgumentException.class,
                 () -> Period.of(null, "10000-01-01", "10000-01-02", "UTC", 30, NOW));
+        assertThrows(IllegalArgumentException.class,
+                () -> Period.of(null, "0000-01-01", "2026-01-02", "UTC", 30, NOW));
+        assertThrows(IllegalArgumentException.class,
+                () -> Period.of(null, "-0001-01-01", "2026-01-02", "UTC", 30, NOW));
     }
 
     @Test

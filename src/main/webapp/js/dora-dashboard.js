@@ -110,6 +110,8 @@ function loadAll(initial) {
     var dashboard = document.querySelector('.dora-dashboard');
     var loads = [];
     var load = function(path, part, label, render) {
+        var el = document.querySelector('[data-dora-part="' + part + '"]');
+        if (el) el.classList.add('dora-loading');
         loads.push(getJson(base + path).then(function(data) {
             if (!current()) return;
             render(data);
@@ -118,6 +120,8 @@ function loadAll(initial) {
             if (!current()) return;
             console.log('Could not load the ' + label + ':', e);
             markPart(part, label, true);
+        }).then(function() {
+            if (current() && el) el.classList.remove('dora-loading');
         }));
     };
 
@@ -158,7 +162,7 @@ function loadAll(initial) {
     });
 }
 
-// A part that failed to load still shows the previous period, so mark it and say so rather
+// A part that failed to load may still show an earlier period, so dim it and say so rather
 // than let it pass for the period now selected.
 var failedParts = {};
 function markPart(part, label, failed) {
@@ -170,7 +174,7 @@ function markPart(part, label, failed) {
     var names = Object.keys(failedParts).map(function(k) { return failedParts[k]; });
     var list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
     msg.textContent = names.length
-        ? 'Could not load the ' + list + ' for this period, so they still show the previous one. Reload the page to try again.'
+        ? 'Could not load the ' + list + ' for this period. Reload the page to try again.'
         : '';
 }
 

@@ -47,6 +47,23 @@ class ApiRankingsRangeTest {
     }
 
     @Test
+    void aJobsDailyMetricsCountOnlyThatJob() throws Exception {
+        long min = 60_000L;
+        store.insertBuild("app", 1, at("2026-03-10T09:00:00Z"), min, "FAILURE", "SCM", "main");
+        store.insertBuild("app", 2, at("2026-03-10T10:00:00Z"), 10 * min, "SUCCESS", "SCM", "main");
+        store.insertBuild("other", 1, at("2026-03-10T08:00:00Z"), min, "FAILURE", "SCM", "main");
+        store.insertBuild("other", 2, at("2026-03-10T11:00:00Z"), min, "SUCCESS", "SCM", "main");
+        store.insertBuild("other", 3, at("2026-03-10T12:00:00Z"), min, "SUCCESS", "SCM", "main");
+
+        JSONObject day = get("dora-api/trends?job=app&from=2026-03-10&to=2026-03-10&tz=UTC")
+                .getJSONArray("trends").getJSONObject(0);
+        assertEquals(2, day.getInt("total_builds"));
+        assertEquals(1, day.getInt("deployments"));
+        assertEquals(50.0, day.getDouble("change_failure_rate"), 0.01);
+        assertEquals(70 * min, day.getLong("restore_time_ms"), "failed at 09:00, fixed by 10:10");
+    }
+
+    @Test
     void stageRankingsFollowTheRange() throws Exception {
         long march = store.insertBuild("app", 1, at("2026-03-15T10:00:00Z"), 1000, "SUCCESS", "SCM", "main");
         store.insertStage(march, "deploy", 5000, "FAILURE");

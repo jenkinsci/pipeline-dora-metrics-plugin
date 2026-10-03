@@ -40,12 +40,12 @@ button.dora-toggle { display: block; width: 100%; background: none; border: 0; p
 button.dora-toggle:focus-visible { outline: 2px solid var(--focus-input-border, #0969da); outline-offset: 2px; }
 .dora-range-note:not(:empty) { margin: 0 0 12px; color: var(--text-color-secondary, #656d76); font-size: 13px; }
 .dora-load-error:not(:empty) { color: var(--error-color, #cf222e); }
-/* loading, or still showing the previous period after a failed load */
-.dora-dashboard[aria-busy="true"] [data-dora-part], .dora-stale { opacity: 0.55; }
+/* loading, or not showing the chosen period after a failed load */
+.dora-loading, .dora-stale { opacity: 0.55; }
 .dora-empty { color: var(--text-color-secondary, #656d76); }
 
 @media (max-width: 800px) {
-    .dora-chart-grid, .dora-tables { grid-template-columns: 1fr; }
+    .dora-chart-grid, .dora-tables { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (prefers-reduced-motion: reduce) {

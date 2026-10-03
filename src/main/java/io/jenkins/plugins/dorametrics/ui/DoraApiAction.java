@@ -303,7 +303,8 @@ public class DoraApiAction implements RootAction {
         try {
             return Period.of(days, from, to, tz, defaultDays, System.currentTimeMillis());
         } catch (IllegalArgumentException e) {
-            throw org.kohsuke.stapler.HttpResponses.error(400, e.getMessage());
+            // answered as JSON, like the rest of the API, and kept out of the log as an expected input error
+            throw new org.kohsuke.stapler.json.JsonHttpResponse(new JSONObject().element("error", e.getMessage()), 400);
         }
     }
 

@@ -16,6 +16,8 @@ import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.HashSet;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -32,6 +34,7 @@ class ApiRangeVisibilityTest {
 
     private JenkinsRule j;
     private MetricsStore store;
+    private long earlier;
 
     @BeforeEach
     void setUp(JenkinsRule rule) throws Exception {
@@ -46,7 +49,7 @@ class ApiRangeVisibilityTest {
                 .grant(Jenkins.READ).everywhere().to("alice")
                 .grant(Item.READ).onItems(open).to("alice"));
 
-        long earlier = System.currentTimeMillis() - 2 * HOUR;
+        earlier = System.currentTimeMillis() - 2 * HOUR;
         long open1 = store.insertBuild("open-app", 1, earlier, 1000, "SUCCESS", "SCM", "main");
         store.insertStage(open1, "open-stage", 500, "SUCCESS");
         long secret1 = store.insertBuild("secret-app", 1, earlier, 1000, "FAILURE", "SCM", "main");
@@ -106,7 +109,10 @@ class ApiRangeVisibilityTest {
 
     @Test
     void aRangeGivenOnlyInPartIsABadRequest() throws Exception {
-        assertEquals(400, get("admin", "dora-api/overview?from=2026-03-01").getWebResponse().getStatusCode());
+        Page partial = get("admin", "dora-api/overview?from=2026-03-01");
+        assertEquals(400, partial.getWebResponse().getStatusCode());
+        assertEquals("from and to must both be dates, as YYYY-MM-DD",
+                JSONObject.fromObject(partial.getWebResponse().getContentAsString()).getString("error"));
         assertEquals(400, get("admin", "dora-api/trends?from=2026-03-01&to=03/02/2026").getWebResponse().getStatusCode());
         assertEquals(400, get("admin", "dora-api/export?format=csv&from=%2B300000000-01-01&to=%2B300000000-01-02")
                 .getWebResponse().getStatusCode());
@@ -117,10 +123,13 @@ class ApiRangeVisibilityTest {
         JSONArray points = json("admin", "dora-api/trends?days=3&tz=UTC").getJSONArray("trends");
         // a window of 3 x 24 hours touches 4 calendar days
         assertEquals(4, points.size());
-        String buildDay = Instant.ofEpochMilli(System.currentTimeMillis() - 2 * HOUR).atZone(ZoneOffset.UTC).toLocalDate().toString();
+        // the seeded builds are an hour apart, so shortly after midnight UTC they span two days
+        Set<String> buildDays = new HashSet<>();
+        buildDays.add(Instant.ofEpochMilli(earlier).atZone(ZoneOffset.UTC).toLocalDate().toString());
+        buildDays.add(Instant.ofEpochMilli(earlier + HOUR).atZone(ZoneOffset.UTC).toLocalDate().toString());
         for (int i = 0; i < points.size(); i++) {
             JSONObject point = points.getJSONObject(i);
-            if (!point.getString("date").equals(buildDay)) {
+            if (!buildDays.contains(point.getString("date"))) {
                 assertEquals(0, point.getInt("total_builds"), point.getString("date"));
             }
         }
