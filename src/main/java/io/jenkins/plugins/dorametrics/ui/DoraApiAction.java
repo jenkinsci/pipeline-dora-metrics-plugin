@@ -20,11 +20,12 @@ import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.verb.GET;
 import org.kohsuke.stapler.verb.POST;
 
-import java.util.Calendar;
+import io.jenkins.plugins.dorametrics.util.Period;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
@@ -99,11 +100,15 @@ public class DoraApiAction implements RootAction {
     }
 
     @GET
-    public HttpResponse doOverview(@QueryParameter(value = "days") String daysParam) {
+    public HttpResponse doOverview(@QueryParameter(value = "days") String daysParam,
+                                  @QueryParameter(value = "from") String fromParam,
+                                  @QueryParameter(value = "to") String toParam,
+                                  @QueryParameter(value = "tz") String tzParam) {
         Jenkins.get().checkPermission(Jenkins.READ);
-        int days = DurationFormatter.parseDays(daysParam, 30);
-        long toMs = System.currentTimeMillis();
-        long fromMs = toMs - ((long) days * 86400_000);
+        Period period = period(daysParam, fromParam, toParam, tzParam, 30);
+        int days = period.days;
+        long toMs = period.toMs;
+        long fromMs = period.fromMs;
         String pattern = getPattern();
 
         DoraCalculator calc = new DoraCalculator();
@@ -113,18 +118,23 @@ public class DoraApiAction implements RootAction {
         json.put("lead_time", metricToJson(calc.leadTimeForChanges(fromMs, toMs, pattern)));
         json.put("mttr", metricToJson(calc.meanTimeToRestore(fromMs, toMs, pattern)));
         json.put("change_failure_rate", metricToJson(calc.changeFailureRate(fromMs, toMs, pattern)));
+        DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
+        json.put("retention_days", config != null ? config.getRetentionDays() : 365);
 
         return new org.kohsuke.stapler.json.JsonHttpResponse(json, 200);
     }
 
     @GET
     public HttpResponse doPipelines(@QueryParameter(value = "days") String daysParam,
-                                     @QueryParameter(value = "limit") String limitParam) {
+                                     @QueryParameter(value = "limit") String limitParam,
+                                     @QueryParameter(value = "from") String fromParam,
+                                     @QueryParameter(value = "to") String toParam,
+                                     @QueryParameter(value = "tz") String tzParam) {
         Jenkins.get().checkPermission(Jenkins.READ);
-        int days = DurationFormatter.parseDays(daysParam, 30);
-        int limit = DurationFormatter.parseLimit(limitParam, 10);
-        long toMs = System.currentTimeMillis();
-        long fromMs = toMs - ((long) days * 86400_000);
+        Period period = period(daysParam, fromParam, toParam, tzParam, 30);
+        int limit = rankingLimit(limitParam);
+        long toMs = period.toMs;
+        long fromMs = period.fromMs;
 
         PipelineRanker ranker = new PipelineRanker();
         Jenkins jenkins = Jenkins.get();
@@ -133,17 +143,58 @@ public class DoraApiAction implements RootAction {
         json.put("slowest", rankingsToJson(topVisible(ranker.slowestPipelines(fromMs, toMs, Integer.MAX_VALUE), jenkins, limit)));
         json.put("most_failing", rankingsToJson(topVisible(ranker.mostFailingPipelines(fromMs, toMs, Integer.MAX_VALUE), jenkins, limit)));
         json.put("flakiest", rankingsToJson(topVisible(ranker.flakiestPipelines(fromMs, toMs, Integer.MAX_VALUE), jenkins, limit)));
+        // against the period of the same length just before this one
+        long previousFrom = fromMs - (toMs - fromMs);
+        json.put("most_improved", rankingsToJson(topVisible(
+                ranker.mostImproved(fromMs, toMs, previousFrom, fromMs, Integer.MAX_VALUE), jenkins, limit)));
 
         return new org.kohsuke.stapler.json.JsonHttpResponse(json, 200);
     }
 
+    /** Stage rankings for the period, as the dashboard lists them. */
+    @GET
+    public HttpResponse doStages(@QueryParameter(value = "days") String daysParam,
+                                 @QueryParameter(value = "limit") String limitParam,
+                                 @QueryParameter(value = "from") String fromParam,
+                                 @QueryParameter(value = "to") String toParam,
+                                 @QueryParameter(value = "tz") String tzParam) {
+        Jenkins.get().checkPermission(Jenkins.READ);
+        Period period = period(daysParam, fromParam, toParam, tzParam, 30);
+        int limit = rankingLimit(limitParam);
+        PipelineRanker ranker = new PipelineRanker();
+        JSONObject json = new JSONObject();
+        json.put("period_days", period.days);
+        json.put("slowest", stagesToJson(ranker.slowestStages(period.fromMs, period.toMs, limit)));
+        json.put("most_failing", stagesToJson(ranker.mostFailingStages(period.fromMs, period.toMs, limit)));
+        return new org.kohsuke.stapler.json.JsonHttpResponse(json, 200);
+    }
+
+    static JSONArray stagesToJson(List<PipelineRanker.RankedStage> stages) {
+        JSONArray arr = new JSONArray();
+        for (PipelineRanker.RankedStage s : stages) {
+            JSONObject j = new JSONObject();
+            j.put("stage", s.stageName);
+            j.put("value", s.displayValue);
+            j.put("runs", s.occurrences);
+            arr.add(j);
+        }
+        return arr;
+    }
+
+    /**
+     * One point for every day of the period, in the viewer's time zone when {@code tz} is
+     * given. Besides the build counts and durations, each day carries the four DORA metrics
+     * for that day, filtered as the dashboard cards are, so a chart can show what they show.
+     * A metric with nothing to measure that day is null.
+     */
     @GET
     public HttpResponse doTrends(@QueryParameter(value = "days") String daysParam,
-                                  @QueryParameter(value = "job") String jobName) {
+                                  @QueryParameter(value = "job") String jobName,
+                                  @QueryParameter(value = "from") String fromParam,
+                                  @QueryParameter(value = "to") String toParam,
+                                  @QueryParameter(value = "tz") String tzParam) {
         Jenkins.get().checkPermission(Jenkins.READ);
-        int days = DurationFormatter.parseDays(daysParam, 90);
-        long toMs = System.currentTimeMillis();
-        long fromMs = toMs - ((long) days * 86400_000);
+        Period period = period(daysParam, fromParam, toParam, tzParam, 90);
 
         MetricsStore store = MetricsStore.getInstance();
         boolean singleJob = jobName != null && !jobName.isEmpty();
@@ -152,31 +203,36 @@ public class DoraApiAction implements RootAction {
             return org.kohsuke.stapler.HttpResponses.notFound();
         }
         List<BuildRecord> builds = singleJob
-                ? store.getBuilds(jobName, fromMs, toMs)
-                : store.getAllBuilds(fromMs, toMs,
+                ? store.getBuilds(jobName, period.fromMs, period.toMs)
+                : store.getAllBuilds(period.fromMs, period.toMs,
                         JobVisibility.excludedForCurrentUser(DoraGlobalConfiguration.get(), store));
+        Map<LocalDate, List<BuildRecord>> byDate = builds.stream()
+                .collect(Collectors.groupingBy(b -> Instant.ofEpochMilli(b.timestamp).atZone(period.zone).toLocalDate()));
 
-        Map<String, List<BuildRecord>> byDate = builds.stream()
-                .collect(Collectors.groupingBy(b -> {
-                    Calendar cal = Calendar.getInstance();
-                    cal.setTimeInMillis(b.timestamp);
-                    return String.format(Locale.ROOT, "%d-%02d-%02d",
-                            cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH));
-                }));
+        DoraCalculator calc = singleJob
+                ? new DoraCalculator(store, DoraGlobalConfiguration.get(), java.util.Collections.emptySet()).forJob(jobName)
+                : new DoraCalculator();
+        String pattern = singleJob ? "^" + java.util.regex.Pattern.quote(jobName) + "$" : getPattern();
+        Map<LocalDate, DoraCalculator.Day> dora = calc.dailyMetrics(period.fromMs, period.toMs, pattern, period.zone);
 
         JSONArray trendData = new JSONArray();
-        new TreeMap<>(byDate).forEach((date, dateBuilds) -> {
+        dora.forEach((date, day) -> {
+            List<BuildRecord> dateBuilds = byDate.getOrDefault(date, java.util.Collections.emptyList());
             JSONObject point = new JSONObject();
-            point.put("date", date);
+            point.put("date", date.toString());
             point.put("total_builds", dateBuilds.size());
             point.put("successful", dateBuilds.stream().filter(BuildRecord::isSuccess).count());
             point.put("failed", dateBuilds.stream().filter(BuildRecord::isFailure).count());
             point.put("avg_duration_ms", dateBuilds.stream().mapToLong(b -> b.durationMs).average().orElse(0));
+            point.put("deployments", day.deployments());
+            point.put("change_failure_rate", orNull(day.changeFailureRate()));
+            point.put("lead_time_ms", orNull(day.leadTimeMs()));
+            point.put("restore_time_ms", orNull(day.restoreTimeMs()));
             trendData.add(point);
         });
 
         JSONObject json = new JSONObject();
-        json.put("period_days", days);
+        json.put("period_days", period.days);
         json.put("job", jobName != null ? jobName : "all");
         json.put("trends", trendData);
 
@@ -185,11 +241,15 @@ public class DoraApiAction implements RootAction {
 
     @GET
     public HttpResponse doExport(@QueryParameter(value = "days") String daysParam,
-                                  @QueryParameter(value = "format") String format) {
+                                  @QueryParameter(value = "format") String format,
+                                  @QueryParameter(value = "from") String fromParam,
+                                  @QueryParameter(value = "to") String toParam,
+                                  @QueryParameter(value = "tz") String tzParam) {
         Jenkins.get().checkPermission(Jenkins.READ);
-        int days = DurationFormatter.parseDays(daysParam, 90);
-        long toMs = System.currentTimeMillis();
-        long fromMs = toMs - ((long) days * 86400_000);
+        Period period = period(daysParam, fromParam, toParam, tzParam, 90);
+        int days = period.days;
+        long toMs = period.toMs;
+        long fromMs = period.fromMs;
 
         MetricsStore store = MetricsStore.getInstance();
         List<BuildRecord> builds = store.getAllBuilds(fromMs, toMs,
@@ -237,6 +297,30 @@ public class DoraApiAction implements RootAction {
         json.put("builds", arr);
 
         return new org.kohsuke.stapler.json.JsonHttpResponse(json, 200);
+    }
+
+    private static Period period(String days, String from, String to, String tz, int defaultDays) {
+        try {
+            return Period.of(days, from, to, tz, defaultDays, System.currentTimeMillis());
+        } catch (IllegalArgumentException e) {
+            // answered as JSON, like the rest of the API, and kept out of the log as an expected input error
+            throw new org.kohsuke.stapler.json.JsonHttpResponse(new JSONObject().element("error", e.getMessage()), 400);
+        }
+    }
+
+    /**
+     * How many rankings to return. The dashboard asks for its Top N setting, which may be set
+     * above the usual cap, and has to get as many rows as it rendered on first load.
+     */
+    private static int rankingLimit(String limitParam) {
+        DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
+        int max = Math.max(100, config != null ? config.getDashboardTopN() : 10);
+        return DurationFormatter.parseLimit(limitParam, 10, max);
+    }
+
+    /** A JSON null for a missing value; putting a Java null would drop the key instead. */
+    private static Object orNull(Object value) {
+        return value == null ? net.sf.json.JSONNull.getInstance() : value;
     }
 
     static String escapeCsv(String value) {

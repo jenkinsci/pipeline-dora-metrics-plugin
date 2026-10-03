@@ -2,19 +2,20 @@
 .dora-dashboard { max-width: 1440px; margin: 0 auto; padding: 16px; }
 .dora-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .dora-date-picker { display: flex; gap: 2px; }
-.dora-custom-date { display: flex; gap: 4px; align-items: center; font-size: 12px; }
+.dora-custom-date { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 12px; }
 .dora-custom-date input { width: 130px; }
 
 /* DORA metric cards grid */
 .dora-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .dora-card-value { font-size: 28px; font-weight: 700; margin-bottom: 6px; line-height: 1.1; }
-.dora-card-band { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; color: #fff; }
+.dora-card-band { display: inline-block; align-self: flex-start; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; color: #fff; }
 .dora-sparkline { width: 110px; height: 36px; opacity: 0.4; margin-top: 8px; }
 
 /* Sections */
 .dora-section { margin-bottom: 16px; }
-.dora-section-body { overflow: hidden; transition: max-height 0.3s ease; }
-.dora-section-body.collapsed { max-height: 0 !important; }
+.dora-section-body { overflow: hidden; transition: max-height 0.3s ease, visibility 0s; }
+/* hidden once closed, so its links leave the tab order and the accessibility tree */
+.dora-section-body.collapsed { max-height: 0 !important; visibility: hidden; transition: max-height 0.3s ease, visibility 0s 0.3s; }
 .dora-toggle { cursor: pointer; }
 .dora-chevron { display: inline-block; transition: transform 0.2s; font-size: 14px; color: var(--text-color-secondary, #656d76); }
 .dora-chevron.collapsed { transform: rotate(-90deg); }
@@ -33,3 +34,20 @@
 /* Per-job metrics page */
 .job-dora { max-width: 1200px; margin: 0 auto; padding: 16px; }
 .job-dora .subtitle { color: var(--text-color-secondary, #656d76); font-size: 14px; margin-bottom: 16px; }
+
+/* Section headers are buttons, for keyboard and screen reader users, styled like the titles they were */
+button.dora-toggle { display: block; width: 100%; background: none; border: 0; padding: 0; text-align: left; font-family: inherit; color: inherit; }
+button.dora-toggle:focus-visible { outline: 2px solid var(--focus-input-border, #0969da); outline-offset: 2px; }
+.dora-range-note:not(:empty) { margin: 0 0 12px; color: var(--text-color-secondary, #656d76); font-size: 13px; }
+.dora-load-error:not(:empty) { color: var(--error-color, #cf222e); }
+/* loading, or not showing the chosen period after a failed load */
+.dora-loading, .dora-stale { opacity: 0.55; }
+.dora-empty { color: var(--text-color-secondary, #656d76); }
+
+@media (max-width: 800px) {
+    .dora-chart-grid, .dora-tables { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dora-section-body, .dora-section-body.collapsed, .dora-chevron { transition: none; }
+}

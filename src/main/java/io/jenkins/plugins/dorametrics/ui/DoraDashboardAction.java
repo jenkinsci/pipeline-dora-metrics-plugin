@@ -151,9 +151,16 @@ public class DoraDashboardAction implements RootAction {
         return ".*";
     }
 
-    private int getTopN() {
+    /** How many rows each ranking shows, for the page's script too. */
+    public int getTopN() {
         DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
         return config != null ? config.getDashboardTopN() : 10;
+    }
+
+    /** How many days of builds are kept, so the page can say when a period reaches past it. */
+    public int getRetentionDays() {
+        DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
+        return config != null ? config.getRetentionDays() : 365;
     }
 
     private long now() { return System.currentTimeMillis(); }
