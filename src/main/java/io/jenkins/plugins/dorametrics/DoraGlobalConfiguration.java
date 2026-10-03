@@ -356,8 +356,13 @@ public class DoraGlobalConfiguration extends GlobalConfiguration {
     public boolean isIgnoreDisabledPipelines() { return ignoreDisabledPipelines; }
     public void setIgnoreDisabledPipelines(boolean v) { this.ignoreDisabledPipelines = v; }
 
-    public int getRetentionDays() { return retentionDays; }
-    public void setRetentionDays(int v) { this.retentionDays = v; }
+    /**
+     * At least one day. The form already enforces it, but Configuration as Code and a hand-edited
+     * config file reach the field without the form, and a retention of zero or less would have
+     * the next cleanup delete every stored build.
+     */
+    public int getRetentionDays() { return Math.max(1, retentionDays); }
+    public void setRetentionDays(int v) { this.retentionDays = Math.max(1, v); }
 
     public int getHistoryImportDays() { return historyImportDays; }
     public void setHistoryImportDays(int v) { this.historyImportDays = Math.max(1, v); }
