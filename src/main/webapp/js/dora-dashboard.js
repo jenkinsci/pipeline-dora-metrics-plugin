@@ -5,6 +5,11 @@ var requestSeq = 0;
 var viewerTz = (function() {
     try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; }
 })();
+var reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+function localDate(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
 
 function toggleSection(header) {
     var body = header.nextElementSibling;
@@ -13,7 +18,12 @@ function toggleSection(header) {
     if (opening) {
         body.classList.remove('collapsed');
         body.style.maxHeight = body.scrollHeight + 'px';
+        // without an animation there is no transitionend to unpin the height
+        if (!parseFloat(getComputedStyle(body).transitionDuration)) body.style.maxHeight = 'none';
     } else {
+        // a height of "none" cannot animate, so pin the current one first
+        body.style.maxHeight = body.scrollHeight + 'px';
+        void body.offsetHeight;
         body.classList.add('collapsed');
         body.style.maxHeight = '0';
     }
@@ -25,10 +35,12 @@ function highlightDateButton(btn) {
     document.querySelectorAll('.dora-date-btn').forEach(function(b) {
         b.classList.remove('jenkins-button--primary');
         b.classList.add('jenkins-button--tertiary');
+        b.setAttribute('aria-pressed', 'false');
     });
     if (btn) {
         btn.classList.remove('jenkins-button--tertiary');
         btn.classList.add('jenkins-button--primary');
+        btn.setAttribute('aria-pressed', 'true');
     }
 }
 
@@ -41,10 +53,22 @@ function setDays(days, btn) {
 }
 
 function applyCustomDate() {
-    var from = document.getElementById('dora-from').value;
-    var to = document.getElementById('dora-to').value;
-    if (!from || !to) return;
+    var fromEl = document.getElementById('dora-from');
+    var toEl = document.getElementById('dora-to');
+    var from = fromEl.value;
+    var to = toEl.value;
+    var iso = /^\d{4}-\d{2}-\d{2}$/;
+    if (!iso.test(from) || !iso.test(to)) {
+        setRangeNote('Pick a start and an end date.');
+        return;
+    }
     if (to < from) { var swap = from; from = to; to = swap; }
+    // the server stops a range at today too, so the fields show the days that are counted
+    var today = localDate(new Date());
+    if (to > today) to = today;
+    if (from > today) from = today;
+    fromEl.value = from;
+    toEl.value = to;
     currentRange = { from: from, to: to };
     highlightDateButton(null);
     loadAll();
@@ -83,42 +107,70 @@ function loadAll(initial) {
     var base = getBaseUrl();
     var q = rangeQuery(currentRange);
     var current = function() { return seq === requestSeq; };
+    var dashboard = document.querySelector('.dora-dashboard');
+    var loads = [];
+    var load = function(path, part, label, render) {
+        loads.push(getJson(base + path).then(function(data) {
+            if (!current()) return;
+            render(data);
+            markPart(part, label, false);
+        }).catch(function(e) {
+            if (!current()) return;
+            console.log('Could not load the ' + label + ':', e);
+            markPart(part, label, true);
+        }));
+    };
 
     var csv = document.getElementById('dora-export-csv');
     if (csv) csv.href = base + '/dora-api/export?format=csv&' + q;
+    if (dashboard) dashboard.setAttribute('aria-busy', 'true');
 
-    if (!initial) getJson(base + '/dora-api/overview?' + q).then(function(data) {
-        if (!current()) return;
+    if (!initial) load('/dora-api/overview?' + q, 'cards', 'cards', function(data) {
         updateKpiCard('df', data.deployment_frequency);
         updateKpiCard('lt', data.lead_time);
         updateKpiCard('mttr', data.mttr);
         updateKpiCard('cfr', data.change_failure_rate);
-        showRangeNote(data.period_days, data.retention_days);
-    }).catch(function(e) { console.log('Overview load error:', e); });
+        showRangeNote(data.retention_days);
+    });
 
-    getJson(base + '/dora-api/trends?' + q).then(function(data) {
-        if (!current()) return;
+    load('/dora-api/trends?' + q, 'charts', 'charts', function(data) {
         var trends = data.trends || [];
         renderBuildChart(trends);
         renderDurationChart(trends);
         renderSparklines(trends);
-    }).catch(function(e) { console.log('Chart load error:', e); });
+    });
 
-    if (initial) return;
+    if (!initial) {
+        load('/dora-api/pipelines?' + q + '&limit=' + topN(), 'rankings', 'pipeline rankings', function(data) {
+            renderPipelineRows('rank-slowest', data.slowest);
+            renderPipelineRows('rank-failing', data.most_failing);
+            renderPipelineRows('rank-improved', data.most_improved);
+            renderPipelineRows('rank-flakiest', data.flakiest);
+        });
+        load('/dora-api/stages?' + q + '&limit=' + topN(), 'stages', 'stage tables', function(data) {
+            renderStageRows('stage-slowest', data.slowest);
+            renderStageRows('stage-failing', data.most_failing);
+        });
+    }
 
-    getJson(base + '/dora-api/pipelines?' + q + '&limit=' + topN()).then(function(data) {
-        if (!current()) return;
-        renderPipelineRows('rank-slowest', data.slowest);
-        renderPipelineRows('rank-failing', data.most_failing);
-        renderPipelineRows('rank-improved', data.most_improved);
-        renderPipelineRows('rank-flakiest', data.flakiest);
-    }).catch(function(e) { console.log('Rankings load error:', e); });
+    Promise.all(loads).then(function() {
+        if (current() && dashboard) dashboard.removeAttribute('aria-busy');
+    });
+}
 
-    getJson(base + '/dora-api/stages?' + q + '&limit=' + topN()).then(function(data) {
-        if (!current()) return;
-        renderStageRows('stage-slowest', data.slowest);
-        renderStageRows('stage-failing', data.most_failing);
-    }).catch(function(e) { console.log('Stages load error:', e); });
+// A part that failed to load still shows the previous period, so mark it and say so rather
+// than let it pass for the period now selected.
+var failedParts = {};
+function markPart(part, label, failed) {
+    if (failed) { failedParts[part] = label; } else { delete failedParts[part]; }
+    var el = document.querySelector('[data-dora-part="' + part + '"]');
+    if (el) el.classList.toggle('dora-stale', failed);
+    var msg = document.getElementById('dora-load-error');
+    if (!msg) return;
+    var names = Object.keys(failedParts).map(function(k) { return failedParts[k]; });
+    msg.textContent = names.length
+        ? 'Could not load the ' + names.join(', ') + ' for this period, so they still show the previous one. Reload the page to try again.'
+        : '';
 }
 
 function updateKpiCard(slug, metric) {
@@ -132,12 +184,26 @@ function updateKpiCard(slug, metric) {
     }
 }
 
-function showRangeNote(periodDays, retentionDays) {
+function setRangeNote(text) {
     var note = document.getElementById('dora-range-note');
-    if (!note) return;
-    note.textContent = periodDays && retentionDays && periodDays > retentionDays
+    if (note) note.textContent = text;
+}
+
+// Days older than Data Retention keeps show nothing, so say so when the period reaches that far back.
+function showRangeNote(retentionDays) {
+    var back = currentRange.from ? daysSince(currentRange.from) : currentRange.days;
+    setRangeNote(retentionDays && back > retentionDays
         ? 'Only the last ' + retentionDays + ' days are kept (Data Retention), so earlier days show nothing.'
-        : '';
+        : '');
+}
+
+// Calendar days from an ISO date to today, both counted, in the viewer's calendar.
+function daysSince(isoDate) {
+    var p = isoDate.split('-');
+    var start = new Date(+p[0], +p[1] - 1, +p[2]);
+    var now = new Date();
+    var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return Math.round((today - start) / 86400000) + 1;
 }
 
 // Each part of a job's full name is its own path part: a multibranch job such as
@@ -153,10 +219,19 @@ function cell(row, text) {
     return td;
 }
 
+function emptyRow(tbody) {
+    var tr = document.createElement('tr');
+    var td = cell(tr, 'Nothing to list for this period.');
+    td.colSpan = 4;
+    td.className = 'dora-empty';
+    tbody.appendChild(tr);
+}
+
 function renderPipelineRows(tbodyId, rows) {
     var tbody = document.getElementById(tbodyId);
     if (!tbody) return;
     tbody.textContent = '';
+    if (!rows || !rows.length) { emptyRow(tbody); return; }
     (rows || []).forEach(function(r, i) {
         var tr = document.createElement('tr');
         cell(tr, String(i + 1));
@@ -177,6 +252,7 @@ function renderStageRows(tbodyId, rows) {
     var tbody = document.getElementById(tbodyId);
     if (!tbody) return;
     tbody.textContent = '';
+    if (!rows || !rows.length) { emptyRow(tbody); return; }
     (rows || []).forEach(function(r, i) {
         var tr = document.createElement('tr');
         cell(tr, String(i + 1));
@@ -191,11 +267,31 @@ function dayLabels(trends) {
     return trends.map(function(t) { return t.date.substring(5); });
 }
 
+// Axis and legend text in the theme's own secondary colour, so it stays readable in dark themes.
+var chartText = (function() {
+    try { return getComputedStyle(document.documentElement).getPropertyValue('--text-color-secondary').trim(); } catch (e) { return ''; }
+})();
+var chartGrid = 'rgba(128,128,128,0.15)';
+
+function chartConfig(config) {
+    if (chartText) config.options.color = chartText;
+    var scales = config.options.scales || {};
+    Object.keys(scales).forEach(function(axis) {
+        if (chartText) scales[axis].ticks = Object.assign({ color: chartText }, scales[axis].ticks);
+    });
+    if (reduceMotion) config.options.animation = false;
+    return config;
+}
+
 function renderBuildChart(trends) {
     var ctx = document.getElementById('chart-builds');
     if (!ctx || typeof Chart === 'undefined') return;
     if (window._buildChart) window._buildChart.destroy();
-    window._buildChart = new Chart(ctx, {
+    var ok = 0, failed = 0;
+    trends.forEach(function(t) { ok += t.successful; failed += t.failed; });
+    ctx.setAttribute('aria-label', 'Successful and failed builds by day over the selected period, '
+        + ok + ' successful and ' + failed + ' failed in all');
+    window._buildChart = new Chart(ctx, chartConfig({
         type: 'bar',
         data: {
             labels: dayLabels(trends),
@@ -207,16 +303,20 @@ function renderBuildChart(trends) {
         options: {
             responsive: true,
             plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } },
-            scales: { x: { stacked: true, grid: { display: false }, ticks: { font: { size: 9 }, maxRotation: 45 } }, y: { stacked: true, beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { font: { size: 10 } } } }
+            scales: { x: { stacked: true, grid: { display: false }, ticks: { font: { size: 9 }, maxRotation: 45 } }, y: { stacked: true, beginAtZero: true, grid: { color: chartGrid }, ticks: { font: { size: 10 } } } }
         }
-    });
+    }));
 }
 
 function renderDurationChart(trends) {
     var ctx = document.getElementById('chart-duration');
     if (!ctx || typeof Chart === 'undefined') return;
     if (window._durChart) window._durChart.destroy();
-    window._durChart = new Chart(ctx, {
+    var builds = 0, totalMs = 0;
+    trends.forEach(function(t) { builds += t.total_builds; totalMs += t.avg_duration_ms * t.total_builds; });
+    ctx.setAttribute('aria-label', 'Average build duration by day over the selected period, '
+        + (builds ? Math.round(totalMs / builds / 1000) + ' seconds over all ' + builds + ' builds' : 'no builds'));
+    window._durChart = new Chart(ctx, chartConfig({
         type: 'line',
         data: {
             labels: dayLabels(trends),
@@ -232,9 +332,9 @@ function renderDurationChart(trends) {
         options: {
             responsive: true,
             plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } },
-            scales: { x: { grid: { display: false }, ticks: { font: { size: 9 }, maxRotation: 45 } }, y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { font: { size: 10 } } } }
+            scales: { x: { grid: { display: false }, ticks: { font: { size: 9 }, maxRotation: 45 } }, y: { beginAtZero: true, grid: { color: chartGrid }, ticks: { font: { size: 10 } } } }
         }
-    });
+    }));
 }
 
 // Each sparkline plots its own card's metric day by day. Days with nothing to measure
@@ -274,16 +374,28 @@ function createSparkline(id, data, color) {
     document.querySelectorAll('.dora-toggle').forEach(function(header) {
         header.addEventListener('click', function() { toggleSection(this); });
     });
+    // Once open, a section grows with whatever is loaded into it later
+    document.querySelectorAll('.dora-section-body').forEach(function(body) {
+        body.addEventListener('transitionend', function(e) {
+            if (e.target === body && e.propertyName === 'max-height' && !body.classList.contains('collapsed')) {
+                body.style.maxHeight = 'none';
+            }
+        });
+    });
 
     // Show the default period in the date fields, in the viewer's own calendar
-    var toLocalDate = function(d) {
-        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-    };
     var today = new Date();
     var toEl = document.getElementById('dora-to');
     var fromEl = document.getElementById('dora-from');
-    if (toEl) toEl.value = toLocalDate(today);
-    if (fromEl) fromEl.value = toLocalDate(new Date(today.getTime() - 30 * 86400000));
+    if (toEl) { toEl.value = localDate(today); toEl.max = localDate(today); }
+    if (fromEl) { fromEl.value = localDate(new Date(today.getTime() - 30 * 86400000)); fromEl.max = localDate(today); }
+
+    ['rank-slowest', 'rank-failing', 'rank-improved', 'rank-flakiest', 'stage-slowest', 'stage-failing'].forEach(function(id) {
+        var tbody = document.getElementById(id);
+        if (tbody && !tbody.rows.length) emptyRow(tbody);
+    });
+    var dashboard = document.querySelector('.dora-dashboard');
+    showRangeNote(dashboard ? parseInt(dashboard.getAttribute('data-retention-days'), 10) : NaN);
 
     // Build history import. Only rendered for users who may run it, but the endpoint
     // checks the permission again, so hiding the button is convenience and not security.

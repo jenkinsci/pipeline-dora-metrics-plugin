@@ -5,21 +5,21 @@
         <script src="${resURL}/plugin/pipeline-dora-metrics/js/chart.min.js"></script>
         <link rel="stylesheet" href="${resURL}/plugin/pipeline-dora-metrics/css/dora-dashboard.css" type="text/css"/>
 
-        <div class="dora-dashboard" data-top-n="${it.topN}">
+        <div class="dora-dashboard" data-top-n="${it.topN}" data-retention-days="${it.retentionDays}">
             <!-- Header -->
             <l:app-bar title="DORA Metrics Dashboard">
                 <div class="dora-controls">
                     <div class="dora-date-picker">
-                        <button class="jenkins-button jenkins-button--tertiary dora-date-btn" data-days="7">7d</button>
-                        <button class="jenkins-button jenkins-button--primary dora-date-btn" data-days="30">30d</button>
-                        <button class="jenkins-button jenkins-button--tertiary dora-date-btn" data-days="90">90d</button>
-                        <button class="jenkins-button jenkins-button--tertiary dora-date-btn" data-days="180">180d</button>
-                        <button class="jenkins-button jenkins-button--tertiary dora-date-btn" data-days="365">1y</button>
+                        <button class="jenkins-button jenkins-button--tertiary dora-date-btn" data-days="7" title="Last 7 days" aria-pressed="false">7d</button>
+                        <button class="jenkins-button jenkins-button--primary dora-date-btn" data-days="30" title="Last 30 days" aria-pressed="true">30d</button>
+                        <button class="jenkins-button jenkins-button--tertiary dora-date-btn" data-days="90" title="Last 90 days" aria-pressed="false">90d</button>
+                        <button class="jenkins-button jenkins-button--tertiary dora-date-btn" data-days="180" title="Last 180 days" aria-pressed="false">180d</button>
+                        <button class="jenkins-button jenkins-button--tertiary dora-date-btn" data-days="365" title="Last year" aria-pressed="false">1y</button>
                     </div>
                     <div class="dora-custom-date">
-                        <input type="date" id="dora-from" class="jenkins-input" />
+                        <input type="date" id="dora-from" class="jenkins-input" aria-label="Start date" />
                         <span>to</span>
-                        <input type="date" id="dora-to" class="jenkins-input" />
+                        <input type="date" id="dora-to" class="jenkins-input" aria-label="End date" />
                         <button id="dora-apply-date" class="jenkins-button">Apply</button>
                     </div>
                     <a class="jenkins-button" id="dora-export-csv" href="${rootURL}/dora-api/export?format=csv&amp;days=30" download="dora-metrics.csv">Export CSV</a>
@@ -30,9 +30,10 @@
                 </div>
             </l:app-bar>
             <div id="dora-range-note" class="dora-range-note" role="status"></div>
+            <div id="dora-load-error" class="dora-range-note dora-load-error" role="alert"></div>
 
             <!-- DORA Metric Cards using Jenkins l:card -->
-            <div class="dora-cards">
+            <div class="dora-cards" data-dora-part="cards">
                 <j:set var="df" value="${it.deploymentFrequency}"/>
                 <l:card title="Deployment Frequency">
                     <div class="dora-card-value" id="kpi-df-value">${df.displayValue}</div>
@@ -64,9 +65,9 @@
 
             <!-- Trends -->
             <div class="dora-section">
-                <button type="button" class="jenkins-section__title dora-toggle" aria-expanded="true">Trends <span class="dora-chevron" aria-hidden="true">▾</span></button>
-                <div class="dora-section-body">
-                    <div class="dora-chart-grid">
+                <button type="button" class="jenkins-section__title dora-toggle" aria-expanded="true" aria-controls="dora-section-trends">Trends <span class="dora-chevron" aria-hidden="true">▾</span></button>
+                <div class="dora-section-body" id="dora-section-trends">
+                    <div class="dora-chart-grid" data-dora-part="charts">
                         <l:card title="Build Volume and Success Rate">
                             <canvas id="chart-builds" role="img" aria-label="Successful and failed builds by day over the selected period"></canvas>
                         </l:card>
@@ -79,9 +80,9 @@
 
             <!-- Pipeline Rankings -->
             <div class="dora-section">
-                <button type="button" class="jenkins-section__title dora-toggle" aria-expanded="true">Pipeline Rankings <span class="dora-chevron" aria-hidden="true">▾</span></button>
-                <div class="dora-section-body">
-                    <div class="dora-tables">
+                <button type="button" class="jenkins-section__title dora-toggle" aria-expanded="true" aria-controls="dora-section-rankings">Pipeline Rankings <span class="dora-chevron" aria-hidden="true">▾</span></button>
+                <div class="dora-section-body" id="dora-section-rankings">
+                    <div class="dora-tables" data-dora-part="rankings">
                         <l:card title="Slowest Pipelines">
                             <table class="jenkins-table jenkins-table--small">
                                 <thead><tr><th>#</th><th>Pipeline</th><th>Avg Duration</th><th>Builds</th></tr></thead>
@@ -131,9 +132,9 @@
 
             <!-- Stage Analytics -->
             <div class="dora-section">
-                <button type="button" class="jenkins-section__title dora-toggle" aria-expanded="true">Stage Analytics <span class="dora-chevron" aria-hidden="true">▾</span></button>
-                <div class="dora-section-body">
-                    <div class="dora-tables">
+                <button type="button" class="jenkins-section__title dora-toggle" aria-expanded="true" aria-controls="dora-section-stages">Stage Analytics <span class="dora-chevron" aria-hidden="true">▾</span></button>
+                <div class="dora-section-body" id="dora-section-stages">
+                    <div class="dora-tables" data-dora-part="stages">
                         <l:card title="Slowest Stages">
                             <table class="jenkins-table jenkins-table--small">
                                 <thead><tr><th>#</th><th>Stage</th><th>Avg Duration</th><th>Runs</th></tr></thead>
@@ -161,8 +162,8 @@
 
             <!-- API Docs -->
             <div class="dora-section">
-                <button type="button" class="jenkins-section__title dora-toggle" aria-expanded="false">REST API <span class="dora-chevron collapsed" aria-hidden="true">▾</span></button>
-                <div class="dora-section-body collapsed" style="max-height:0">
+                <button type="button" class="jenkins-section__title dora-toggle" aria-expanded="false" aria-controls="dora-section-api">REST API <span class="dora-chevron collapsed" aria-hidden="true">▾</span></button>
+                <div class="dora-section-body collapsed" id="dora-section-api" style="max-height:0">
                     <pre class="dora-api-docs">GET /dora-api/overview?days=30           All 4 DORA metrics
 GET /dora-api/pipelines?days=30&amp;limit=10  Pipeline rankings
 GET /dora-api/stages?days=30&amp;limit=10     Stage rankings
