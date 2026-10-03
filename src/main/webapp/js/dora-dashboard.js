@@ -168,8 +168,9 @@ function markPart(part, label, failed) {
     var msg = document.getElementById('dora-load-error');
     if (!msg) return;
     var names = Object.keys(failedParts).map(function(k) { return failedParts[k]; });
+    var list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
     msg.textContent = names.length
-        ? 'Could not load the ' + names.join(', ') + ' for this period, so they still show the previous one. Reload the page to try again.'
+        ? 'Could not load the ' + list + ' for this period, so they still show the previous one. Reload the page to try again.'
         : '';
 }
 
@@ -267,9 +268,17 @@ function dayLabels(trends) {
     return trends.map(function(t) { return t.date.substring(5); });
 }
 
-// Axis and legend text in the theme's own secondary colour, so it stays readable in dark themes.
+// Axis and legend text in the theme's text colour, so it stays readable in dark themes too.
+// Read through an element so the canvas gets a resolved colour rather than a var() expression.
 var chartText = (function() {
-    try { return getComputedStyle(document.documentElement).getPropertyValue('--text-color-secondary').trim(); } catch (e) { return ''; }
+    try {
+        var probe = document.createElement('span');
+        probe.style.color = 'var(--text-color)';
+        document.body.appendChild(probe);
+        var color = getComputedStyle(probe).color;
+        probe.remove();
+        return color;
+    } catch (e) { return ''; }
 })();
 var chartGrid = 'rgba(128,128,128,0.15)';
 
@@ -350,11 +359,18 @@ function renderSparklines(trends) {
 function createSparkline(id, data, color) {
     var ctx = document.getElementById(id);
     if (!ctx || typeof Chart === 'undefined') return;
-    if (ctx._chart) ctx._chart.destroy();
+    var labels = data.map(function() { return ''; });
+    // Update in place: a sparkline drawn again on its canvas comes back at the canvas's default size
+    if (ctx._chart) {
+        ctx._chart.data.labels = labels;
+        ctx._chart.data.datasets[0].data = data;
+        ctx._chart.update();
+        return;
+    }
     ctx._chart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: data.map(function() { return ''; }),
+            labels: labels,
             datasets: [{ data: data, borderColor: color, backgroundColor: color + '15', fill: true, tension: 0.4, pointRadius: 0, borderWidth: 1.5, spanGaps: true }]
         },
         options: { responsive: false, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false } }, animation: false }

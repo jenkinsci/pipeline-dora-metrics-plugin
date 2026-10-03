@@ -2,7 +2,7 @@
 .dora-dashboard { max-width: 1440px; margin: 0 auto; padding: 16px; }
 .dora-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .dora-date-picker { display: flex; gap: 2px; }
-.dora-custom-date { display: flex; gap: 4px; align-items: center; font-size: 12px; }
+.dora-custom-date { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 12px; }
 .dora-custom-date input { width: 130px; }
 
 /* DORA metric cards grid */
