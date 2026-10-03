@@ -37,9 +37,9 @@ A Jenkins plugin that tracks all four DORA metrics, pipeline analytics, rankings
 
 **Dashboard**
 - Interactive Chart.js trend charts (build volume, duration over time)
-- Sparkline trends on each DORA metric card
-- Date range picker (7d / 30d / 90d / 180d / 1y / custom date range)
-- Collapsible sections with chevron indicators
+- A sparkline of each DORA metric, day by day, on its card
+- Date range picker (7d / 30d / 90d / 180d / 1y / custom dates up to today). The cards, charts, rankings, stage tables and the CSV link all follow it
+- Collapsible sections that also work from the keyboard
 - Job drill-down links (click any pipeline to see its per-job metrics)
 - CSV and JSON export
 - Permission-aware: users only see jobs they have access to
@@ -65,13 +65,18 @@ Rankings only show jobs the current user has access to. Users with limited permi
 
 **REST API**
 ```
-GET /dora-api/overview?days=30          All 4 DORA metrics
-GET /dora-api/pipelines?days=30&limit=10   Pipeline rankings
-GET /dora-api/trends?days=90&job=my-pipeline   Time-series trend data
-GET /dora-api/export?days=90&format=csv    CSV/JSON bulk export
-POST /dora-api/importHistory               Start a build history import (Administer)
-GET /dora-api/importStatus                 Counters for the running or last import (Administer)
+GET /dora-api/overview?days=30                 All 4 DORA metrics
+GET /dora-api/pipelines?days=30&limit=10       Pipeline rankings
+GET /dora-api/stages?days=30&limit=10          Stage rankings
+GET /dora-api/trends?days=90&job=my-pipeline   Every day of the period, with builds and the 4 DORA metrics
+GET /dora-api/export?days=90&format=csv        CSV/JSON bulk export
+POST /dora-api/importHistory                   Start a build history import (Administer)
+GET /dora-api/importStatus                     Counters for the running or last import (Administer)
 ```
+
+Instead of `days`, the endpoints that take it also take `from=YYYY-MM-DD&to=YYYY-MM-DD` for a range of
+dates up to today, and `tz=Region/City` to count days in that time zone. A range given only in part, or a
+date that isn't one, gets a 400 with the reason in `error`.
 
 ## How It Works
 
