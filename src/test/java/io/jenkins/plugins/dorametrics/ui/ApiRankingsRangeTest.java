@@ -3,25 +3,26 @@ package io.jenkins.plugins.dorametrics.ui;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.time.Instant;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /** Everything the dashboard lists can be fetched for the range it shows, not a fixed 30 days. */
-public class ApiRankingsRangeTest {
+@WithJenkins
+class ApiRankingsRangeTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     private MetricsStore store;
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeEach
+    void setUp(JenkinsRule rule) throws Exception {
+        j = rule;
         MetricsStore.setInstance(null);
         store = MetricsStore.getInstance();
         j.createFreeStyleProject("app");
@@ -36,7 +37,7 @@ public class ApiRankingsRangeTest {
     }
 
     @Test
-    public void mostImprovedComparesWithThePeriodBeforeTheRange() throws Exception {
+    void mostImprovedComparesWithThePeriodBeforeTheRange() throws Exception {
         store.insertBuild("app", 1, at("2026-02-15T10:00:00Z"), 100_000, "SUCCESS", "SCM", "main");
         store.insertBuild("app", 2, at("2026-03-15T10:00:00Z"), 40_000, "SUCCESS", "SCM", "main");
 
@@ -46,7 +47,7 @@ public class ApiRankingsRangeTest {
     }
 
     @Test
-    public void stageRankingsFollowTheRange() throws Exception {
+    void stageRankingsFollowTheRange() throws Exception {
         long march = store.insertBuild("app", 1, at("2026-03-15T10:00:00Z"), 1000, "SUCCESS", "SCM", "main");
         store.insertStage(march, "deploy", 5000, "FAILURE");
         long may = store.insertBuild("app", 2, at("2026-05-15T10:00:00Z"), 1000, "SUCCESS", "SCM", "main");

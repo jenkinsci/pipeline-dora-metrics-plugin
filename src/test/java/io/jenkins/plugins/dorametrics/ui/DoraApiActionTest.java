@@ -65,7 +65,7 @@ public class DoraApiActionTest {
         assertEquals("Test", json.getString("name"));
         assertEquals("42", json.getString("value"));
         assertEquals("Elite", json.getString("band"));
-        assertEquals(io.jenkins.plugins.dorametrics.dora.DoraCalculator.DoraBand.ELITE.color, json.getString("color"));
+        assertEquals("#116329", json.getString("color"));
         assertEquals(42.0, json.getDouble("raw_value"), 0.01);
     }
 
