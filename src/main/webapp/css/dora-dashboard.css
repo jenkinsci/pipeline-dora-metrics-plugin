@@ -43,6 +43,8 @@ button.dora-toggle:focus-visible { outline: 2px solid var(--focus-input-border, 
 /* loading, or not showing the chosen period after a failed load */
 .dora-loading, .dora-stale { opacity: 0.55; }
 .dora-empty { color: var(--text-color-secondary, #656d76); }
+.dora-improved-note:not(:empty) { margin: 8px 0 0; color: var(--text-color-secondary, #656d76); font-size: 13px; }
+.dora-improved-note:empty { display: none; }
 
 @media (max-width: 800px) {
     .dora-chart-grid, .dora-tables { grid-template-columns: minmax(0, 1fr); }
