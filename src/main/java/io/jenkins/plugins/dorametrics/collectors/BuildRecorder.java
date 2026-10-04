@@ -201,16 +201,24 @@ final class BuildRecorder {
                     return branchName(var, branch);
                 }
             }
-            // Multibranch: job name often IS the branch
-            String jobName = run.getParent().getName();
-            String fullName = run.getParent().getFullName();
-            if (fullName.contains("/") && !fullName.equals(jobName)) {
-                return jobName;
+            // A multibranch branch job is named after its branch, a job in an ordinary folder is not
+            if (inMultibranchProject(run.getParent())) {
+                return run.getParent().getName();
             }
         } catch (Exception e) {
             LOGGER.log(Level.FINE, "Could not determine branch for " + run.getFullDisplayName(), e);
         }
         return null;
+    }
+
+    /** Checked by class name, so the plugin does not need branch-api to tell. */
+    private static boolean inMultibranchProject(hudson.model.Job<?, ?> job) {
+        for (Class<?> c = job.getParent().getClass(); c != null; c = c.getSuperclass()) {
+            if ("jenkins.branch.MultiBranchProject".equals(c.getName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
