@@ -200,6 +200,20 @@ function showRangeNote(retentionDays) {
     setRangeNote(retentionDays && back > retentionDays
         ? 'Only the last ' + retentionDays + ' days are kept (Data Retention), so earlier days show nothing.'
         : '');
+    showImprovedNote(retentionDays);
+}
+
+// Most Improved compares with the period of the same length just before this one. When that
+// reaches past Data Retention there is little or nothing left to compare with, so say so.
+function showImprovedNote(retentionDays) {
+    var note = document.getElementById('dora-improved-note');
+    if (!note) return;
+    var length = currentRange.from ? daysSince(currentRange.from) - daysSince(currentRange.to) + 1 : currentRange.days;
+    var back = (currentRange.from ? daysSince(currentRange.from) : currentRange.days) + length;
+    note.textContent = retentionDays && back > retentionDays
+        ? 'Compares with the ' + length + ' days before this period, and Data Retention keeps only '
+            + retentionDays + ' days, so there is little or nothing to compare with.'
+        : '';
 }
 
 // Calendar days from an ISO date to today, both counted, in the viewer's calendar.

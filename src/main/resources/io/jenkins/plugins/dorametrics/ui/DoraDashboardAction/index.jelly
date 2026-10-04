@@ -68,7 +68,7 @@
                 <button type="button" class="jenkins-section__title dora-toggle" aria-expanded="true" aria-controls="dora-section-trends">Trends <span class="dora-chevron" aria-hidden="true">▾</span></button>
                 <div class="dora-section-body" id="dora-section-trends">
                     <div class="dora-chart-grid" data-dora-part="charts">
-                        <l:card title="Build Volume and Success Rate">
+                        <l:card title="Builds by Day">
                             <canvas id="chart-builds" role="img" aria-label="Successful and failed builds by day over the selected period"></canvas>
                         </l:card>
                         <l:card title="Average Build Duration (seconds)">
@@ -114,6 +114,7 @@
                                 </j:forEach>
                                 </tbody>
                             </table>
+                            <p id="dora-improved-note" class="dora-improved-note"></p>
                         </l:card>
 
                         <l:card title="Flakiest Pipelines">

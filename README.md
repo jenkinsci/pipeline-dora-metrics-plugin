@@ -41,7 +41,7 @@ Lead time is worked out per job from that job's own changelogs. A deploy job tha
 - Stage breakdown with duration and run counts
 
 **Dashboard**
-- Interactive Chart.js trend charts (build volume, duration over time)
+- Charts of successful and failed builds by day, and of average build duration
 - A sparkline of each DORA metric, day by day, on its card
 - Date range picker (7d / 30d / 90d / 180d / 1y / custom dates up to today). The cards, charts, rankings, stage tables and the CSV link all follow it
 - Collapsible sections that also work from the keyboard
