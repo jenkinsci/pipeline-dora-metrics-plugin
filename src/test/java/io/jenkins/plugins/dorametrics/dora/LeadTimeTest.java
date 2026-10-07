@@ -2,33 +2,34 @@ package io.jenkins.plugins.dorametrics.dora;
 
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.util.Collections;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * A changelog only lists what changed since the previous build, so a commit first built by a
  * build that failed is not in the changelog of the build that finally deployed it. Its lead
  * time runs until that deployment all the same.
  */
-public class LeadTimeTest {
+@WithJenkins
+class LeadTimeTest {
 
     private static final long MIN = 60_000L;
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     private MetricsStore store;
     private DoraGlobalConfiguration config;
     private long t0;
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         MetricsStore.setInstance(null);
         store = MetricsStore.getInstance();
         config = DoraGlobalConfiguration.get();
@@ -45,7 +46,7 @@ public class LeadTimeTest {
     }
 
     @Test
-    public void aCommitFirstBuiltByAFailedBuildCountsUntilItIsDeployed() {
+    void aCommitFirstBuiltByAFailedBuildCountsUntilItIsDeployed() {
         long failed = build("app", 1, t0 + 10 * MIN, MIN, "FAILURE", "main");
         store.insertCommit(failed, "c1", "dev", t0);
         build("app", 2, t0 + 20 * MIN, 5 * MIN, "SUCCESS", "main"); // empty changelog: nothing new since #1
@@ -54,7 +55,7 @@ public class LeadTimeTest {
     }
 
     @Test
-    public void theEarliestCommitSinceTheLastDeploymentSetsTheLeadTime() {
+    void theEarliestCommitSinceTheLastDeploymentSetsTheLeadTime() {
         long failed = build("app", 1, t0 + 10 * MIN, MIN, "FAILURE", "main");
         store.insertCommit(failed, "c1", "dev", t0);
         long aborted = build("app", 2, t0 + 15 * MIN, MIN, "ABORTED", "main");
@@ -66,7 +67,7 @@ public class LeadTimeTest {
     }
 
     @Test
-    public void anEarlierDeploymentClosesTheWindow() {
+    void anEarlierDeploymentClosesTheWindow() {
         long first = build("app", 1, t0 + 10 * MIN, MIN, "SUCCESS", "main");
         store.insertCommit(first, "c1", "dev", t0);
         long second = build("app", 2, t0 + 60 * MIN, MIN, "SUCCESS", "main");
@@ -77,7 +78,7 @@ public class LeadTimeTest {
     }
 
     @Test
-    public void otherJobsDoNotMix() {
+    void otherJobsDoNotMix() {
         long other = build("other", 1, t0 + 10 * MIN, MIN, "FAILURE", "main");
         store.insertCommit(other, "x", "dev", t0 - 600 * MIN);
         long app = build("app", 1, t0 + 20 * MIN, MIN, "SUCCESS", "main");
@@ -87,7 +88,7 @@ public class LeadTimeTest {
     }
 
     @Test
-    public void aFailureOnAnotherBranchIsNotPartOfAProductionDeployment() {
+    void aFailureOnAnotherBranchIsNotPartOfAProductionDeployment() {
         config.setTrackAllBranches(false);
         config.setProductionBranchPattern("main");
         long feature = build("app", 1, t0 + 10 * MIN, MIN, "FAILURE", "feature-x");

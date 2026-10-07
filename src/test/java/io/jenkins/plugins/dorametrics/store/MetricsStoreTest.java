@@ -1,36 +1,38 @@
 package io.jenkins.plugins.dorametrics.store;
 
 import java.util.Set;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 
-import static org.junit.Assert.*;
+@WithJenkins
+class MetricsStoreTest {
 
-public class MetricsStoreTest {
-
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     private MetricsStore store;
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         // Reset singleton so it re-initializes with current JenkinsRule's JENKINS_HOME
         MetricsStore.setInstance(null);
         store = MetricsStore.getInstance();
     }
 
     @Test
-    public void insertAndQueryBuild() {
+    void insertAndQueryBuild() {
         long now = System.currentTimeMillis();
         long id = store.insertBuild("test-job", 1, now, 5000, "SUCCESS", "USER", "main");
-        assertTrue("Build ID should be positive", id > 0);
+        assertTrue(id > 0, "Build ID should be positive");
 
         List<MetricsStore.BuildRecord> builds = store.getBuilds("test-job", now - 1000, now + 1000);
         assertEquals(1, builds.size());
@@ -42,17 +44,17 @@ public class MetricsStoreTest {
     }
 
     @Test
-    public void insertDuplicateBuildMerges() {
+    void insertDuplicateBuildMerges() {
         long now = System.currentTimeMillis();
         store.insertBuild("test-job", 1, now, 5000, "SUCCESS", "USER", "main");
         store.insertBuild("test-job", 1, now, 6000, "FAILURE", "SCM", "develop");
 
         List<MetricsStore.BuildRecord> builds = store.getBuilds("test-job", now - 1000, now + 1000);
-        assertEquals("Duplicate should merge", 1, builds.size());
+        assertEquals(1, builds.size(), "Duplicate should merge");
     }
 
     @Test
-    public void insertAndQueryStages() {
+    void insertAndQueryStages() {
         long now = System.currentTimeMillis();
         long buildId = store.insertBuild("stage-job", 1, now, 10000, "SUCCESS", "USER", null);
         store.insertStage(buildId, "Build", 3000, "SUCCESS");
@@ -68,7 +70,7 @@ public class MetricsStoreTest {
     }
 
     @Test
-    public void insertAndQueryCommits() {
+    void insertAndQueryCommits() {
         long now = System.currentTimeMillis();
         long commitTime = now - 1800000; // 30 min before
         long buildId = store.insertBuild("commit-job", 1, now, 5000, "SUCCESS", "SCM", "main");
@@ -80,7 +82,7 @@ public class MetricsStoreTest {
     }
 
     @Test
-    public void countBuilds() {
+    void countBuilds() {
         long now = System.currentTimeMillis();
         store.insertBuild("count-job-a", 1, now, 5000, "SUCCESS", "USER", null);
         store.insertBuild("count-job-a", 2, now, 5000, "FAILURE", "USER", null);
@@ -92,7 +94,7 @@ public class MetricsStoreTest {
     }
 
     @Test
-    public void countBuildsWithPattern() {
+    void countBuildsWithPattern() {
         long now = System.currentTimeMillis();
         store.insertBuild("prod/api", 1, now, 5000, "SUCCESS", "USER", null);
         store.insertBuild("prod/web", 1, now, 5000, "SUCCESS", "USER", null);
@@ -104,7 +106,7 @@ public class MetricsStoreTest {
     }
 
     @Test
-    public void countBuildsWithExactPattern() {
+    void countBuildsWithExactPattern() {
         long now = System.currentTimeMillis();
         store.insertBuild("api-gateway", 1, now, 5000, "SUCCESS", "USER", null);
         store.insertBuild("api-gateway", 2, now, 5000, "FAILURE", "USER", null);
@@ -118,7 +120,7 @@ public class MetricsStoreTest {
     }
 
     @Test
-    public void getJobStats() {
+    void getJobStats() {
         long now = System.currentTimeMillis();
         store.insertBuild("slow-job", 1, now, 30000, "SUCCESS", "USER", null);
         store.insertBuild("slow-job", 2, now, 20000, "SUCCESS", "USER", null);
@@ -132,7 +134,7 @@ public class MetricsStoreTest {
     }
 
     @Test
-    public void getStageStats() {
+    void getStageStats() {
         long now = System.currentTimeMillis();
         long b1 = store.insertBuild("stage-stats-job", 1, now, 10000, "SUCCESS", "USER", null);
         long b2 = store.insertBuild("stage-stats-job", 2, now, 10000, "SUCCESS", "USER", null);
@@ -149,14 +151,14 @@ public class MetricsStoreTest {
     }
 
     @Test
-    public void getJobStatsRejectsInvalidOrderBy() {
+    void getJobStatsRejectsInvalidOrderBy() {
         long now = System.currentTimeMillis();
         List<MetricsStore.JobStats> stats = store.getJobStats(now - 1000, now + 1000, 10, "DROP TABLE builds; --");
-        assertTrue("Invalid orderBy should return empty list", stats.isEmpty());
+        assertTrue(stats.isEmpty(), "Invalid orderBy should return empty list");
     }
 
     @Test
-    public void getAllJobNames() {
+    void getAllJobNames() {
         long now = System.currentTimeMillis();
         store.insertBuild("alpha-job", 1, now, 5000, "SUCCESS", "USER", null);
         store.insertBuild("beta-job", 1, now, 5000, "SUCCESS", "USER", null);
@@ -167,7 +169,7 @@ public class MetricsStoreTest {
     }
 
     @Test
-    public void cleanup() {
+    void cleanup() {
         long now = System.currentTimeMillis();
         long oldTime = now - 400 * 86400000L; // 400 days ago
         store.insertBuild("old-job", 1, oldTime, 5000, "SUCCESS", "USER", null);
@@ -178,12 +180,12 @@ public class MetricsStoreTest {
         List<MetricsStore.BuildRecord> all = store.getAllBuilds(0, now + 1000);
         boolean hasOld = all.stream().anyMatch(b -> b.jobName.equals("old-job"));
         boolean hasNew = all.stream().anyMatch(b -> b.jobName.equals("new-job"));
-        assertFalse("Old build should be cleaned", hasOld);
-        assertTrue("New build should remain", hasNew);
+        assertFalse(hasOld, "Old build should be cleaned");
+        assertTrue(hasNew, "New build should remain");
     }
 
     @Test
-    public void renameJob() {
+    void renameJob() {
         long now = System.currentTimeMillis();
         store.insertBuild("old-name", 1, now, 5000, "SUCCESS", "USER", "main");
         store.insertBuild("old-name", 2, now, 6000, "FAILURE", "USER", "main");
@@ -192,23 +194,23 @@ public class MetricsStoreTest {
 
         List<MetricsStore.BuildRecord> oldBuilds = store.getBuilds("old-name", now - 1000, now + 1000);
         List<MetricsStore.BuildRecord> newBuilds = store.getBuilds("new-name", now - 1000, now + 1000);
-        assertTrue("Old name should have no builds", oldBuilds.isEmpty());
-        assertEquals("New name should have 2 builds", 2, newBuilds.size());
+        assertTrue(oldBuilds.isEmpty(), "Old name should have no builds");
+        assertEquals(2, newBuilds.size(), "New name should have 2 builds");
     }
 
     @Test
-    public void avgLeadTimeMs() {
+    void avgLeadTimeMs() {
         long now = System.currentTimeMillis();
         long commitTime = now - 1800000; // 30 min before
         long buildId = store.insertBuild("lead-job", 1, now, 5000, "SUCCESS", "SCM", "main");
         store.insertCommit(buildId, "abc123", "dev@test.com", commitTime);
 
         double avgLt = store.avgLeadTimeMs(now - 1000, now + 1000, ".*");
-        assertTrue("Lead time should be ~30 min", avgLt > 1700000 && avgLt < 1900000);
+        assertTrue(avgLt > 1700000 && avgLt < 1900000, "Lead time should be ~30 min");
     }
 
     @Test
-    public void queriesLeaveExcludedJobsOut() {
+    void queriesLeaveExcludedJobsOut() {
         long now = System.currentTimeMillis();
         long a = store.insertBuild("keep", 1, now, 1000, "SUCCESS", "SCM", "main");
         store.insertBuild("keep", 2, now, 1000, "FAILURE", "SCM", "main");
@@ -243,7 +245,7 @@ public class MetricsStoreTest {
     }
 
     @Test
-    public void avgLeadTimeLeavesExcludedJobsOut() {
+    void avgLeadTimeLeavesExcludedJobsOut() {
         long now = System.currentTimeMillis();
         long keep = store.insertBuild("keep", 1, now, 1000, "SUCCESS", "SCM", "main");
         store.insertCommit(keep, "sha-keep", "dev", now - 60_000);
@@ -252,15 +254,15 @@ public class MetricsStoreTest {
         long from = now - 1000, to = now + 1000;
         Set<String> excluded = Set.of("drop");
 
-        assertTrue("the retired job drags the unfiltered average up",
-                store.avgLeadTimeMs(from, to, ".*", excluded) < store.avgLeadTimeMs(from, to, ".*"));
+        assertTrue(store.avgLeadTimeMs(from, to, ".*", excluded) < store.avgLeadTimeMs(from, to, ".*"),
+                "the retired job drags the unfiltered average up");
         assertEquals(61_000, store.avgLeadTimeMs(from, to, ".*", excluded), 3000);
         // A glob and an exclusion in the same query: both sets of binds must line up.
         assertEquals(61_000, store.avgLeadTimeMs(from, to, "keep.*", excluded), 3000);
     }
 
     @Test
-    public void statsExcludeBeforeApplyingLimit() {
+    void statsExcludeBeforeApplyingLimit() {
         long now = System.currentTimeMillis();
         store.insertBuild("slow", 1, now, 30000, "SUCCESS", "USER", null);
         store.insertBuild("medium", 1, now, 20000, "SUCCESS", "USER", null);
@@ -275,7 +277,7 @@ public class MetricsStoreTest {
     }
 
     @Test
-    public void unusableExcludedNamesAreIgnored() {
+    void unusableExcludedNamesAreIgnored() {
         long now = System.currentTimeMillis();
         store.insertBuild("only", 1, now, 1000, "SUCCESS", "USER", null);
         long from = now - 1000, to = now + 1000;

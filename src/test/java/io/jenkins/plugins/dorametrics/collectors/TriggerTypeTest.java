@@ -3,12 +3,12 @@ package io.jenkins.plugins.dorametrics.collectors;
 import hudson.model.Cause;
 import hudson.triggers.SCMTrigger;
 import hudson.triggers.TimerTrigger;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /** Every build gets one of a few documented trigger labels, never a Java class name. */
-public class TriggerTypeTest {
+class TriggerTypeTest {
 
     static class BranchIndexingCause extends Cause {
         @Override public String getShortDescription() { return "Branch indexing"; }
@@ -27,7 +27,7 @@ public class TriggerTypeTest {
     }
 
     @Test
-    public void causesMapToTheDocumentedLabels() {
+    void causesMapToTheDocumentedLabels() {
         assertEquals("USER", BuildRecorder.triggerType(new Cause.UserIdCause()));
         assertEquals("TIMER", BuildRecorder.triggerType(new TimerTrigger.TimerTriggerCause()));
         assertEquals("SCM", BuildRecorder.triggerType(new SCMTrigger.SCMTriggerCause("")));

@@ -5,36 +5,34 @@ import hudson.model.TaskListener;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import jenkins.model.Jenkins;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * The task decides whether the first import runs and whether it is recorded as having run.
  * Getting that wrong either loses the import or repeats it hourly forever.
  */
-public class HistoryImportTaskTest {
+@WithJenkins
+class HistoryImportTaskTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     private MetricsStore store;
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         MetricsStore.setInstance(null);
         store = MetricsStore.getInstance();
     }
 
     private HistoryImportTask task() {
         HistoryImportTask task = Jenkins.get().getExtensionList(HistoryImportTask.class).get(0);
-        assertNotNull("HistoryImportTask should be registered", task);
+        assertNotNull(task, "HistoryImportTask should be registered");
         return task;
     }
 
@@ -44,24 +42,24 @@ public class HistoryImportTaskTest {
     }
 
     @Test
-    public void runsAndMarksDoneWhenTheFlagIsOff() throws Exception {
+    void runsAndMarksDoneWhenTheFlagIsOff() throws Exception {
         DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
         config.setExcludedJobPattern("task-on");
         FreeStyleProject job = j.createFreeStyleProject("task-on");
         j.buildAndAssertSuccess(job);
         config.setExcludedJobPattern("");
 
-        assertFalse("precondition: the import has not run", config.isHistoryImportDone());
-        assertEquals("precondition: the listener skipped it", 0, storedBuilds("task-on"));
+        assertFalse(config.isHistoryImportDone(), "precondition: the import has not run");
+        assertEquals(0, storedBuilds("task-on"), "precondition: the listener skipped it");
 
         task().execute(TaskListener.NULL);
 
-        assertEquals("the task should have imported the build", 1, storedBuilds("task-on"));
-        assertTrue("and recorded that it ran", DoraGlobalConfiguration.get().isHistoryImportDone());
+        assertEquals(1, storedBuilds("task-on"), "the task should have imported the build");
+        assertTrue(DoraGlobalConfiguration.get().isHistoryImportDone(), "and recorded that it ran");
     }
 
     @Test
-    public void doesNothingWhenTheFlagIsAlreadySet() throws Exception {
+    void doesNothingWhenTheFlagIsAlreadySet() throws Exception {
         DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
         config.setExcludedJobPattern("task-off");
         FreeStyleProject job = j.createFreeStyleProject("task-off");
@@ -72,7 +70,7 @@ public class HistoryImportTaskTest {
 
         task().execute(TaskListener.NULL);
 
-        assertEquals("a second run must not import anything", 0, storedBuilds("task-off"));
+        assertEquals(0, storedBuilds("task-off"), "a second run must not import anything");
     }
 
     /**
@@ -81,15 +79,15 @@ public class HistoryImportTaskTest {
      * whole instance every hour over one unreadable build costs more than it saves.
      */
     @Test
-    public void marksDoneOnlyWhenSomethingWasWritten() {
-        assertFalse("nothing written and failures: leave it to run again",
-                HistoryImportTask.shouldMarkDone(new BuildHistoryImporter.Result(2, 0, 0, 5, 10, true)));
+    void marksDoneOnlyWhenSomethingWasWritten() {
+        assertFalse(HistoryImportTask.shouldMarkDone(new BuildHistoryImporter.Result(2, 0, 0, 5, 10, true)),
+                "nothing written and failures: leave it to run again");
 
-        assertTrue("some written, some failed: the run happened",
-                HistoryImportTask.shouldMarkDone(new BuildHistoryImporter.Result(2, 3, 0, 1, 10, true)));
+        assertTrue(HistoryImportTask.shouldMarkDone(new BuildHistoryImporter.Result(2, 3, 0, 1, 10, true)),
+                "some written, some failed: the run happened");
 
-        assertTrue("nothing to do at all: the run still happened",
-                HistoryImportTask.shouldMarkDone(new BuildHistoryImporter.Result(2, 0, 4, 0, 10, true)));
+        assertTrue(HistoryImportTask.shouldMarkDone(new BuildHistoryImporter.Result(2, 0, 4, 0, 10, true)),
+                "nothing to do at all: the run still happened");
     }
 
     /**
@@ -98,13 +96,13 @@ public class HistoryImportTaskTest {
      * tracked the flag was set anyway and the import never happened on that instance.
      */
     @Test
-    public void anInterruptedRunLeavesTheFlagOff() throws Exception {
+    void anInterruptedRunLeavesTheFlagOff() throws Exception {
         DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
         config.setExcludedJobPattern("interrupted-job");
         j.buildAndAssertSuccess(j.createFreeStyleProject("interrupted-job"));
         config.setExcludedJobPattern("");
 
-        assertFalse("precondition", config.isHistoryImportDone());
+        assertFalse(config.isHistoryImportDone(), "precondition");
 
         Thread.currentThread().interrupt();
         try {
@@ -113,9 +111,9 @@ public class HistoryImportTaskTest {
             Thread.interrupted(); // clear it so the rest of the suite is unaffected
         }
 
-        assertFalse("an interrupted run must not count as the import having happened",
-                DoraGlobalConfiguration.get().isHistoryImportDone());
-        assertEquals("and must not have imported anything", 0, storedBuilds("interrupted-job"));
+        assertFalse(DoraGlobalConfiguration.get().isHistoryImportDone(),
+                "an interrupted run must not count as the import having happened");
+        assertEquals(0, storedBuilds("interrupted-job"), "and must not have imported anything");
     }
 
     /**
@@ -125,11 +123,11 @@ public class HistoryImportTaskTest {
      * the counters.
      */
     @Test
-    public void neverMarksDoneWhenTheRunDidNotFinish() {
-        assertFalse("stopped before it walked anything",
-                HistoryImportTask.shouldMarkDone(new BuildHistoryImporter.Result(0, 0, 0, 0, 5, false)));
+    void neverMarksDoneWhenTheRunDidNotFinish() {
+        assertFalse(HistoryImportTask.shouldMarkDone(new BuildHistoryImporter.Result(0, 0, 0, 0, 5, false)),
+                "stopped before it walked anything");
 
-        assertFalse("stopped part way, even having recorded plenty",
-                HistoryImportTask.shouldMarkDone(new BuildHistoryImporter.Result(3, 7, 2, 0, 5, false)));
+        assertFalse(HistoryImportTask.shouldMarkDone(new BuildHistoryImporter.Result(3, 7, 2, 0, 5, false)),
+                "stopped part way, even having recorded plenty");
     }
 }

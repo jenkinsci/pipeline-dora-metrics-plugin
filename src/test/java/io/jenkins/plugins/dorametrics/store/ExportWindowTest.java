@@ -4,30 +4,28 @@ import hudson.model.Descriptor;
 import hudson.model.TaskListener;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.export.ExportStorageConfig;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.TestExtension;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Every export covers everything that finished since the last export that went through, a
  * failed one is retried with nothing lost, and when the last export happened survives a restart.
  */
-public class ExportWindowTest {
+@WithJenkins
+class ExportWindowTest {
 
     private static final long HOUR = 3600_000L;
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     private MetricsStore store;
     private DoraGlobalConfiguration config;
@@ -54,8 +52,9 @@ public class ExportWindowTest {
         }
     }
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         MetricsStore.setInstance(null);
         store = MetricsStore.getInstance();
         config = DoraGlobalConfiguration.get();
@@ -77,7 +76,7 @@ public class ExportWindowTest {
     }
 
     @Test
-    public void aFailedExportIsRetriedWithItsBuilds() throws Exception {
+    void aFailedExportIsRetriedWithItsBuilds() throws Exception {
         store.insertBuild("app", 1, now - 2 * HOUR, 1000, "SUCCESS", "SCM", "main");
         MetricsExportTask task = new MetricsExportTask();
 
@@ -87,12 +86,12 @@ public class ExportWindowTest {
 
         storage.failing = false;
         runTask(task);
-        assertEquals("the next run tries again", 1, storage.bodies.size());
+        assertEquals(1, storage.bodies.size(), "the next run tries again");
         assertTrue(storage.bodies.get(0).contains("\"job\": \"app\""));
     }
 
     @Test
-    public void anExportCoversEverythingSinceTheLastOne() throws Exception {
+    void anExportCoversEverythingSinceTheLastOne() throws Exception {
         config.setExportIntervalHours(48);
         MetricsExportTask.recordSuccess(now - 48 * HOUR);
         store.insertBuild("app", 1, now - 30 * HOUR, 1000, "SUCCESS", "SCM", "main");
@@ -101,12 +100,12 @@ public class ExportWindowTest {
         runTask();
 
         assertEquals(1, storage.bodies.size());
-        assertTrue("finished 30 hours ago, after the last export", storage.bodies.get(0).contains("\"build\": 1"));
+        assertTrue(storage.bodies.get(0).contains("\"build\": 1"), "finished 30 hours ago, after the last export");
         assertTrue(storage.bodies.get(0).contains("\"build\": 2"));
     }
 
     @Test
-    public void aBuildThatFinishedAfterTheLastExportIsIncludedEvenIfItStartedBefore() throws Exception {
+    void aBuildThatFinishedAfterTheLastExportIsIncludedEvenIfItStartedBefore() throws Exception {
         MetricsExportTask.recordSuccess(now - 25 * HOUR);
         store.insertBuild("long", 1, now - 26 * HOUR, 2 * HOUR, "SUCCESS", "SCM", "main");
 
@@ -117,7 +116,7 @@ public class ExportWindowTest {
     }
 
     @Test
-    public void twoExportsOnOneDayDoNotOverwriteEachOther() throws Exception {
+    void twoExportsOnOneDayDoNotOverwriteEachOther() throws Exception {
         // an hour apart, the shortest interval there is, on the same UTC day
         long first = java.time.Instant.parse("2026-09-28T01:00:00Z").toEpochMilli();
         long second = first + HOUR;
@@ -133,12 +132,12 @@ public class ExportWindowTest {
     }
 
     @Test
-    public void theLastExportSurvivesARestart() throws Exception {
+    void theLastExportSurvivesARestart() throws Exception {
         store.insertBuild("app", 1, now - HOUR, 1000, "SUCCESS", "SCM", "main");
         runTask(new MetricsExportTask());
         assertEquals(1, storage.bodies.size());
 
         runTask(new MetricsExportTask()); // a fresh task, as after a restart
-        assertEquals("the interval has not passed since the last export", 1, storage.bodies.size());
+        assertEquals(1, storage.bodies.size(), "the interval has not passed since the last export");
     }
 }
