@@ -1,9 +1,9 @@
 package io.jenkins.plugins.dorametrics.store;
 
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -13,8 +13,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Re-recording a build used to leave its old stages and commits behind, pointing at a build
@@ -23,15 +22,16 @@ import static org.junit.Assert.assertTrue;
  * dashboard reads stages by the current build id and looks perfectly correct while the rows
  * pile up underneath.
  */
-public class OrphanedRowsTest {
+@WithJenkins
+class OrphanedRowsTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     private MetricsStore store;
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         MetricsStore.setInstance(null);
         store = MetricsStore.getInstance();
     }
@@ -62,29 +62,29 @@ public class OrphanedRowsTest {
     }
 
     @Test
-    public void reRecordingKeepsTheBuildIdAndReplacesItsRows() throws Exception {
+    void reRecordingKeepsTheBuildIdAndReplacesItsRows() throws Exception {
         long now = System.currentTimeMillis();
         long first = store.recordBuild("job", 1, now, 5000, "SUCCESS", "SCM", "main",
                 threeStages(),
                 Collections.singletonList(new MetricsStore.CommitRow("abc", "dev", now - 60_000)));
 
-        assertEquals("three stages after the first record", 3, count("SELECT COUNT(*) FROM stages"));
+        assertEquals(3, count("SELECT COUNT(*) FROM stages"), "three stages after the first record");
 
         long second = store.recordBuild("job", 1, now, 9999, "FAILURE", "SCM", "main",
                 threeStages(),
                 Collections.singletonList(new MetricsStore.CommitRow("abc", "dev", now - 60_000)));
 
-        assertEquals("the build row must keep its id", first, second);
-        assertEquals("its stages must be replaced, not appended", 3, count("SELECT COUNT(*) FROM stages"));
-        assertEquals("and its commits too", 1, count("SELECT COUNT(*) FROM commits"));
-        assertEquals("nothing orphaned", 0, orphanedStages());
-        assertEquals("nothing orphaned", 0, orphanedCommits());
-        assertEquals("one build row", 1, count("SELECT COUNT(*) FROM builds"));
+        assertEquals(first, second, "the build row must keep its id");
+        assertEquals(3, count("SELECT COUNT(*) FROM stages"), "its stages must be replaced, not appended");
+        assertEquals(1, count("SELECT COUNT(*) FROM commits"), "and its commits too");
+        assertEquals(0, orphanedStages(), "nothing orphaned");
+        assertEquals(0, orphanedCommits(), "nothing orphaned");
+        assertEquals(1, count("SELECT COUNT(*) FROM builds"), "one build row");
     }
 
     /** The upsert has to update the row, not silently keep the old values. */
     @Test
-    public void reRecordingUpdatesTheBuildRow() {
+    void reRecordingUpdatesTheBuildRow() {
         long now = System.currentTimeMillis();
         store.recordBuild("upd", 1, now, 5000, "SUCCESS", "SCM", "main",
                 Collections.emptyList(), Collections.emptyList());
@@ -101,14 +101,14 @@ public class OrphanedRowsTest {
 
     /** Ten passes is what an import re-run looks like. */
     @Test
-    public void repeatedRecordingDoesNotGrowTheTables() throws Exception {
+    void repeatedRecordingDoesNotGrowTheTables() throws Exception {
         long now = System.currentTimeMillis();
         for (int i = 0; i < 10; i++) {
             store.recordBuild("loop", 1, now, 5000, "SUCCESS", "SCM", "main",
                     threeStages(), Collections.emptyList());
         }
-        assertEquals("still one build", 1, count("SELECT COUNT(*) FROM builds"));
-        assertEquals("still three stages", 3, count("SELECT COUNT(*) FROM stages"));
+        assertEquals(1, count("SELECT COUNT(*) FROM builds"), "still one build");
+        assertEquals(3, count("SELECT COUNT(*) FROM stages"), "still three stages");
         assertEquals(0, orphanedStages());
     }
 
@@ -117,7 +117,7 @@ public class OrphanedRowsTest {
      * reach them: it deletes children by looking them up through their parent.
      */
     @Test
-    public void cleanupRemovesOrphansLeftByOlderVersions() throws Exception {
+    void cleanupRemovesOrphansLeftByOlderVersions() throws Exception {
         long now = System.currentTimeMillis();
         long id = store.recordBuild("sweep", 1, now, 5000, "SUCCESS", "SCM", "main",
                 threeStages(), Collections.emptyList());
@@ -130,15 +130,14 @@ public class OrphanedRowsTest {
             s.executeUpdate("INSERT INTO commits (build_id, commit_sha, author, timestamp) "
                     + "VALUES (" + (id + 9999) + ", 'dead', 'dev', " + (now - 1000) + ")");
         }
-        assertEquals("precondition: three orphaned stages", 3, orphanedStages());
-        assertEquals("precondition: one orphaned commit", 1, orphanedCommits());
+        assertEquals(3, orphanedStages(), "precondition: three orphaned stages");
+        assertEquals(1, orphanedCommits(), "precondition: one orphaned commit");
 
         // A retention pass that deletes nothing else should still sweep them.
         store.cleanup(now - 86_400_000L);
 
-        assertEquals("orphaned stages should be gone", 0, orphanedStages());
-        assertEquals("orphaned commits should be gone", 0, orphanedCommits());
-        assertTrue("and the build itself is untouched",
-                store.getBuilds("sweep", now - 60_000, now + 60_000).size() == 1);
+        assertEquals(0, orphanedStages(), "orphaned stages should be gone");
+        assertEquals(0, orphanedCommits(), "orphaned commits should be gone");
+        assertEquals(1, store.getBuilds("sweep", now - 60_000, now + 60_000).size(), "and the build itself is untouched");
     }
 }

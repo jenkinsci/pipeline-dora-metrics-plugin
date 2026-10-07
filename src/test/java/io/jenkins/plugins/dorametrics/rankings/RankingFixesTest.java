@@ -4,30 +4,30 @@ import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.rankings.PipelineRanker.RankedPipeline;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import io.jenkins.plugins.dorametrics.ui.DoraDashboardAction;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-public class RankingFixesTest {
+@WithJenkins
+class RankingFixesTest {
 
     private static final long DAY = 86_400_000L;
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     private MetricsStore store;
     private long now;
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         MetricsStore.setInstance(null);
         store = MetricsStore.getInstance();
         now = System.currentTimeMillis();
@@ -42,7 +42,7 @@ public class RankingFixesTest {
     }
 
     @Test
-    public void mostImprovedListsOnlyPipelinesThatGotFaster() {
+    void mostImprovedListsOnlyPipelinesThatGotFaster() {
         store.insertBuild("faster", 1, now - 40 * DAY, 100_000, "SUCCESS", "SCM", "main");
         store.insertBuild("faster", 2, now - DAY, 50_000, "SUCCESS", "SCM", "main");
         store.insertBuild("slower", 1, now - 40 * DAY, 50_000, "SUCCESS", "SCM", "main");
@@ -53,7 +53,7 @@ public class RankingFixesTest {
     }
 
     @Test
-    public void anAbortedRunIsNotFlakiness() {
+    void anAbortedRunIsNotFlakiness() {
         String[] results = {"SUCCESS", "ABORTED", "SUCCESS", "ABORTED", "SUCCESS", "NOT_BUILT", "SUCCESS"};
         for (int i = 0; i < results.length; i++) {
             store.insertBuild("steady", i + 1, now - (10 - i) * 60_000L, 1000, results[i], "SCM", "main");
@@ -63,12 +63,12 @@ public class RankingFixesTest {
             store.insertBuild("flaky", i + 1, now - (10 - i) * 60_000L, 1000, flaky[i], "SCM", "main");
         }
 
-        assertEquals("an aborted or skipped run between two successes is not a flip",
-                List.of("flaky"), names(ranker().flakiestPipelines(now - DAY, now, 10)));
+        assertEquals(List.of("flaky"),
+                names(ranker().flakiestPipelines(now - DAY, now, 10)), "an aborted or skipped run between two successes is not a flip");
     }
 
     @Test
-    public void mostFailingRanksByRateNotByCount() {
+    void mostFailingRanksByRateNotByCount() {
         for (int i = 0; i < 100; i++) {
             store.insertBuild("busy", i + 1, now - i * 60_000L, 1000, i < 10 ? "FAILURE" : "SUCCESS", "SCM", "main");
             if (i < 90) store.insertBuild("busy-2", i + 1, now - i * 60_000L, 1000, i < 9 ? "FAILURE" : "SUCCESS", "SCM", "main");
@@ -79,7 +79,7 @@ public class RankingFixesTest {
     }
 
     @Test
-    public void historyOfDeletedJobsDoesNotTakeRankingSlots() throws Exception {
+    void historyOfDeletedJobsDoesNotTakeRankingSlots() throws Exception {
         DoraGlobalConfiguration.get().setDashboardTopN(2);
         j.createFreeStyleProject("a");
         j.createFreeStyleProject("b");
@@ -91,7 +91,7 @@ public class RankingFixesTest {
     }
 
     @Test
-    public void linksWorkForNamesThatNeedEncoding() {
+    void linksWorkForNamesThatNeedEncoding() {
         DoraDashboardAction dashboard = new DoraDashboardAction();
         assertEquals("job/team/job/feature%252Fx", dashboard.jobUrl("team/feature%2Fx"));
         assertEquals("job/my%20app", dashboard.jobUrl("my app"));

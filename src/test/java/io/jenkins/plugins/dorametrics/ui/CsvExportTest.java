@@ -1,19 +1,25 @@
 package io.jenkins.plugins.dorametrics.ui;
 
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-public class CsvExportTest {
+@WithJenkins
+class CsvExportTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
+
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
+    }
 
     @Test
-    public void rowsEndWithAPlainNewline() throws Exception {
+    void rowsEndWithAPlainNewline() throws Exception {
         MetricsStore.setInstance(null);
         long ts = System.currentTimeMillis() - 60_000L;
         MetricsStore.getInstance().insertBuild("app", 7, ts, 1500, "SUCCESS", "SCM", "main");

@@ -3,30 +3,31 @@ package io.jenkins.plugins.dorametrics.dora;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import hudson.model.FreeStyleProject;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
-public class DoraCalculatorTest {
+@WithJenkins
+class DoraCalculatorTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     private MetricsStore store;
     private DoraCalculator calc;
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         MetricsStore.setInstance(null);
         store = MetricsStore.getInstance();
         calc = new DoraCalculator();
     }
 
     @Test
-    public void deploymentFrequencyElite() {
+    void deploymentFrequencyElite() {
         long now = System.currentTimeMillis();
         // 30+ successful builds in 30 days = 1+/day = Elite
         for (int i = 0; i < 35; i++) {
@@ -39,7 +40,7 @@ public class DoraCalculatorTest {
     }
 
     @Test
-    public void deploymentFrequencyLow() {
+    void deploymentFrequencyLow() {
         long now = System.currentTimeMillis();
         // 1 build in 365 days = ~0.003/day = Low (below 0.033 medium threshold)
         store.insertBuild("df-low", 1, now, 5000, "SUCCESS", "SCM", "main");
@@ -49,7 +50,7 @@ public class DoraCalculatorTest {
     }
 
     @Test
-    public void changeFailureRateElite() {
+    void changeFailureRateElite() {
         long now = System.currentTimeMillis();
         // 20 success, 0 failures = 0% = Elite
         for (int i = 0; i < 20; i++) {
@@ -62,7 +63,7 @@ public class DoraCalculatorTest {
     }
 
     @Test
-    public void changeFailureRateLow() {
+    void changeFailureRateLow() {
         long now = System.currentTimeMillis();
         // 4 success, 6 failures = 60% = Low
         for (int i = 0; i < 4; i++) {
@@ -78,14 +79,14 @@ public class DoraCalculatorTest {
     }
 
     @Test
-    public void changeFailureRateNoBuilds() {
+    void changeFailureRateNoBuilds() {
         long now = System.currentTimeMillis();
         DoraCalculator.DoraMetric cfr = calc.changeFailureRate(now - 1000, now + 1000, "nonexistent");
         assertEquals("N/A", cfr.displayValue);
     }
 
     @Test
-    public void leadTimeWithCommits() {
+    void leadTimeWithCommits() {
         long now = System.currentTimeMillis();
         long commitTime = now - 1800000; // 30 min before
         long buildId = store.insertBuild("lt-job", 1, now, 5000, "SUCCESS", "SCM", "main");
@@ -97,7 +98,7 @@ public class DoraCalculatorTest {
     }
 
     @Test
-    public void leadTimeNoCommits() {
+    void leadTimeNoCommits() {
         long now = System.currentTimeMillis();
         store.insertBuild("lt-no-commit", 1, now, 5000, "SUCCESS", "SCM", "main");
 
@@ -106,7 +107,7 @@ public class DoraCalculatorTest {
     }
 
     @Test
-    public void mttrWithRecovery() {
+    void mttrWithRecovery() {
         long now = System.currentTimeMillis();
         // Failure at T, success at T+10min
         store.insertBuild("mttr-job", 1, now - 600000, 5000, "FAILURE", "SCM", "main");
@@ -118,7 +119,7 @@ public class DoraCalculatorTest {
     }
 
     @Test
-    public void mttrNoFailures() {
+    void mttrNoFailures() {
         long now = System.currentTimeMillis();
         store.insertBuild("mttr-ok", 1, now, 5000, "SUCCESS", "SCM", "main");
 
@@ -128,7 +129,7 @@ public class DoraCalculatorTest {
     }
 
     @Test
-    public void metricsWithJobPattern() {
+    void metricsWithJobPattern() {
         long now = System.currentTimeMillis();
         store.insertBuild("prod/api", 1, now, 5000, "SUCCESS", "SCM", "main");
         store.insertBuild("prod/web", 1, now, 5000, "SUCCESS", "SCM", "main");
@@ -140,7 +141,7 @@ public class DoraCalculatorTest {
     }
 
     @Test
-    public void ignoresDisabledPipelinesWhenConfigured() throws Exception {
+    void ignoresDisabledPipelinesWhenConfigured() throws Exception {
         DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
         j.createFreeStyleProject("cfr-active");
         FreeStyleProject disabled = j.createFreeStyleProject("cfr-disabled");
@@ -174,7 +175,7 @@ public class DoraCalculatorTest {
     }
 
     @Test
-    public void ignoresDisabledPipelinesForLeadTime() throws Exception {
+    void ignoresDisabledPipelinesForLeadTime() throws Exception {
         long now = System.currentTimeMillis();
         j.createFreeStyleProject("lt-active");
         hudson.model.FreeStyleProject retired = j.createFreeStyleProject("lt-retired");
@@ -192,7 +193,7 @@ public class DoraCalculatorTest {
         config.setIgnoreDisabledPipelines(true);
         double filtered = new DoraCalculator(store, config).leadTimeForChanges(from, to, ".*").rawValue;
 
-        assertTrue("the retired pipeline's two-hour lead time must drop out", filtered < unfiltered);
+        assertTrue(filtered < unfiltered, "the retired pipeline's two-hour lead time must drop out");
         assertEquals(61_000, filtered, 3000);
     }
 }

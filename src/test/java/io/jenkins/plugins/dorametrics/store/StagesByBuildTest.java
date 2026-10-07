@@ -1,24 +1,30 @@
 package io.jenkins.plugins.dorametrics.store;
 
 import io.jenkins.plugins.dorametrics.store.MetricsStore.StageRecord;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
-public class StagesByBuildTest {
+@WithJenkins
+class StagesByBuildTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
+
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
+    }
 
     @Test
-    public void everyBuildGetsItsOwnStagesInOrderAcrossBatches() {
+    void everyBuildGetsItsOwnStagesInOrderAcrossBatches() {
         MetricsStore.setInstance(null);
         MetricsStore store = MetricsStore.getInstance();
         long now = System.currentTimeMillis();

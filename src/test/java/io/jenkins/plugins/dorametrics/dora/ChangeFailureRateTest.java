@@ -2,30 +2,31 @@ package io.jenkins.plugins.dorametrics.dora;
 
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.util.Collections;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Change failure rate is failed deployments over deployments. A build that was aborted or
  * never built did not deploy anything, so it must not count toward either.
  */
-public class ChangeFailureRateTest {
+@WithJenkins
+class ChangeFailureRateTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     private MetricsStore store;
     private long now;
     private int number;
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         MetricsStore.setInstance(null);
         store = MetricsStore.getInstance();
         now = System.currentTimeMillis();
@@ -44,15 +45,15 @@ public class ChangeFailureRateTest {
     }
 
     @Test
-    public void abortedBuildsDoNotDiluteTheRate() {
+    void abortedBuildsDoNotDiluteTheRate() {
         builds(10, "SUCCESS");
         builds(2, "FAILURE");
         builds(8, "ABORTED");
-        assertEquals("2 failed of 12 deployments", "16.7%", cfr());
+        assertEquals("16.7%", cfr(), "2 failed of 12 deployments");
     }
 
     @Test
-    public void notBuiltAndUnknownResultsAreNotDeploymentsEither() {
+    void notBuiltAndUnknownResultsAreNotDeploymentsEither() {
         builds(3, "SUCCESS");
         builds(1, "FAILURE");
         builds(2, "NOT_BUILT");
@@ -61,7 +62,7 @@ public class ChangeFailureRateTest {
     }
 
     @Test
-    public void anUnstableBuildIsADeploymentThatDidNotFail() {
+    void anUnstableBuildIsADeploymentThatDidNotFail() {
         builds(1, "SUCCESS");
         builds(1, "UNSTABLE");
         builds(1, "FAILURE");
@@ -69,7 +70,7 @@ public class ChangeFailureRateTest {
     }
 
     @Test
-    public void onlyAbortedBuildsMeansNoDeploymentsYet() {
+    void onlyAbortedBuildsMeansNoDeploymentsYet() {
         builds(4, "ABORTED");
         assertEquals("N/A", cfr());
     }
