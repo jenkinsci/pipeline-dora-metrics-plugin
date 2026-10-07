@@ -6,38 +6,42 @@ import io.jenkins.plugins.dorametrics.dora.DoraCalculator.DoraBand;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import org.htmlunit.html.DomElement;
 import org.htmlunit.html.HtmlPage;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.util.Collections;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * The default bands follow the 2024 DORA report, the form accepts the fractional deploy
  * frequency thresholds it ships with, and an untouched install does not show them as edited.
  */
-public class BandThresholdsTest {
+@WithJenkins
+class BandThresholdsTest {
 
     private static final long HOUR = 3600;
     private static final long DAY = 24 * HOUR;
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
-    @Test
-    public void leadTimeDefaultsFollowTheDoraBands() {
-        DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
-        assertEquals("Elite is under a day", DAY, config.getLtEliteSeconds());
-        assertEquals("High is under a week", 7 * DAY, config.getLtHighSeconds());
-        assertEquals("Medium is under a month", 30 * DAY, config.getLtMediumSeconds());
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
     }
 
     @Test
-    public void leadTimeIsBandedLikeDoraReportsIt() {
+    void leadTimeDefaultsFollowTheDoraBands() {
+        DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
+        assertEquals(DAY, config.getLtEliteSeconds(), "Elite is under a day");
+        assertEquals(7 * DAY, config.getLtHighSeconds(), "High is under a week");
+        assertEquals(30 * DAY, config.getLtMediumSeconds(), "Medium is under a month");
+    }
+
+    @Test
+    void leadTimeIsBandedLikeDoraReportsIt() {
         assertEquals(DoraBand.ELITE, leadTimeBand(12 * HOUR));
         assertEquals(DoraBand.HIGH, leadTimeBand(3 * DAY));
         assertEquals(DoraBand.MEDIUM, leadTimeBand(14 * DAY));
@@ -55,7 +59,7 @@ public class BandThresholdsTest {
     }
 
     @Test
-    public void savedOldDefaultsMoveToTheDoraBands() {
+    void savedOldDefaultsMoveToTheDoraBands() {
         DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
         config.setLtEliteSeconds(3600);
         config.setLtHighSeconds(86400);
@@ -69,7 +73,7 @@ public class BandThresholdsTest {
     }
 
     @Test
-    public void leadTimeBandsSomeoneChangedAreKept() {
+    void leadTimeBandsSomeoneChangedAreKept() {
         DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
         config.setLtEliteSeconds(3600);
         config.setLtHighSeconds(2 * DAY);
@@ -83,29 +87,29 @@ public class BandThresholdsTest {
     }
 
     @Test
-    public void anUntouchedInstallDoesNotShowTheThresholdsAsEdited() throws Exception {
+    void anUntouchedInstallDoesNotShowTheThresholdsAsEdited() throws Exception {
         HtmlPage page = j.createWebClient().goTo("configure");
         for (DomElement info : page.getElementsByTagName("div")) {
             if (info.getAttribute("class").contains("advanced-customized-fields-info")) {
                 String fields = info.getAttribute("data-customized-fields");
-                assertFalse("shown as edited: " + fields, fields.contains("Threshold")
-                        || fields.contains("Seconds") || fields.contains("Percent"));
+                assertFalse(fields.contains("Threshold")
+                        || fields.contains("Seconds") || fields.contains("Percent"), "shown as edited: " + fields);
             }
         }
     }
 
     @Test
-    public void fractionalThresholdsCanBeEntered() throws Exception {
+    void fractionalThresholdsCanBeEntered() throws Exception {
         HtmlPage page = j.createWebClient().goTo("configure");
         for (String field : new String[] {"dfEliteThreshold", "dfHighThreshold", "dfMediumThreshold",
                 "cfrElitePercent", "cfrHighPercent", "cfrMediumPercent"}) {
             DomElement input = page.getElementsByName("_." + field).get(0);
-            assertEquals(field + " must accept decimals", "any", input.getAttribute("step"));
+            assertEquals("any", input.getAttribute("step"), field + " must accept decimals");
         }
     }
 
     @Test
-    public void bandsInTheWrongOrderAreFlagged() {
+    void bandsInTheWrongOrderAreFlagged() {
         DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
         assertEquals(FormValidation.Kind.OK, config.doCheckDfHighThreshold("0.142", "1", "0.033").kind);
         assertEquals(FormValidation.Kind.WARNING, config.doCheckDfHighThreshold("2", "1", "0.033").kind);
@@ -114,6 +118,6 @@ public class BandThresholdsTest {
         assertEquals(FormValidation.Kind.WARNING, config.doCheckMttrHighSeconds("99999999", "3600", "604800").kind);
         assertEquals(FormValidation.Kind.WARNING, config.doCheckCfrHighPercent("20", "5", "15").kind);
         assertEquals(FormValidation.Kind.ERROR, config.doCheckCfrHighPercent("120", "5", "15").kind);
-        assertTrue(config.doCheckCfrHighPercent("10", "5", "15").kind == FormValidation.Kind.OK);
+        assertSame(FormValidation.Kind.OK, config.doCheckCfrHighPercent("10", "5", "15").kind);
     }
 }

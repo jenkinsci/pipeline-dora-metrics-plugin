@@ -2,34 +2,35 @@ package io.jenkins.plugins.dorametrics.dora;
 
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.util.Collections;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Time to restore runs from the first failure until the build that fixed it finished, and a
  * failure that started before the window still counts when it is fixed inside it.
  */
-public class TimeToRestoreTest {
+@WithJenkins
+class TimeToRestoreTest {
 
     private static final long MIN = 60_000L;
     private static final long HOUR = 60 * MIN;
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     private MetricsStore store;
     private DoraGlobalConfiguration config;
     private long from;
     private long to;
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         MetricsStore.setInstance(null);
         store = MetricsStore.getInstance();
         config = DoraGlobalConfiguration.get();
@@ -48,22 +49,22 @@ public class TimeToRestoreTest {
     }
 
     @Test
-    public void runsUntilTheFixingBuildFinished() {
+    void runsUntilTheFixingBuildFinished() {
         build(from + HOUR, MIN, "FAILURE", "main");
         build(from + HOUR + 10 * MIN, 20 * MIN, "SUCCESS", "main");
         assertEquals(30 * MIN, mttr().rawValue, 1.0);
     }
 
     @Test
-    public void aFailureFromBeforeTheWindowCountsWhenItIsFixedInside() {
+    void aFailureFromBeforeTheWindowCountsWhenItIsFixedInside() {
         build(from - 2 * HOUR, MIN, "FAILURE", "main");
         build(from - HOUR, MIN, "FAILURE", "main");
         build(from + HOUR, 0, "SUCCESS", "main");
-        assertEquals("from the first failure of the streak", 3 * HOUR, mttr().rawValue, 1.0);
+        assertEquals(3 * HOUR, mttr().rawValue, 1.0, "from the first failure of the streak");
     }
 
     @Test
-    public void aSuccessBeforeTheWindowClosesTheEarlierStreak() {
+    void aSuccessBeforeTheWindowClosesTheEarlierStreak() {
         build(from - 3 * HOUR, MIN, "FAILURE", "main");
         build(from - 2 * HOUR, 0, "SUCCESS", "main");
         build(from + HOUR, 0, "SUCCESS", "main");
@@ -71,7 +72,7 @@ public class TimeToRestoreTest {
     }
 
     @Test
-    public void anAbortedRetryDoesNotRestartTheClock() {
+    void anAbortedRetryDoesNotRestartTheClock() {
         build(from + HOUR, 0, "FAILURE", "main");
         build(from + HOUR + 5 * MIN, 0, "ABORTED", "main");
         build(from + HOUR + 15 * MIN, 0, "SUCCESS", "main");
@@ -79,13 +80,13 @@ public class TimeToRestoreTest {
     }
 
     @Test
-    public void aFailureThatIsStillOpenIsNotCounted() {
+    void aFailureThatIsStillOpenIsNotCounted() {
         build(from + HOUR, 0, "FAILURE", "main");
         assertEquals("N/A", mttr().displayValue);
     }
 
     @Test
-    public void anEarlierFailureOnAnotherBranchIsIgnoredWhenOnlyProductionCounts() {
+    void anEarlierFailureOnAnotherBranchIsIgnoredWhenOnlyProductionCounts() {
         config.setTrackAllBranches(false);
         config.setProductionBranchPattern("main");
         build(from - 2 * HOUR, 0, "FAILURE", "feature-x");

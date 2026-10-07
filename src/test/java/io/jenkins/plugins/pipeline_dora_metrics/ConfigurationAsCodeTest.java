@@ -2,22 +2,26 @@ package io.jenkins.plugins.pipeline_dora_metrics;
 
 import io.jenkins.plugins.casc.ConfigurationAsCode;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /** The example Configuration as Code file applies, setting by setting. */
-public class ConfigurationAsCodeTest {
+@WithJenkins
+class ConfigurationAsCodeTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
+
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
+    }
 
     @Test
-    public void theExampleConfigurationApplies() throws Exception {
+    void theExampleConfigurationApplies() {
         ConfigurationAsCode.get().configure(getClass().getResource("configuration-as-code.yml").toExternalForm());
 
         DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
@@ -34,7 +38,7 @@ public class ConfigurationAsCodeTest {
         assertEquals(43200, config.getMttrHighSeconds());
         assertEquals(20.0, config.getCfrMediumPercent(), 0);
 
-        assertTrue("the job settings take effect", config.shouldTrackJob("deploy/api"));
+        assertTrue(config.shouldTrackJob("deploy/api"), "the job settings take effect");
         assertTrue(config.shouldTrackJob("api-prod"));
         assertFalse(config.shouldTrackJob("api-scratch"));
         assertFalse(config.shouldTrackJob("api-staging"));

@@ -3,32 +3,33 @@ package io.jenkins.plugins.dorametrics.rankings;
 import io.jenkins.plugins.dorametrics.DoraGlobalConfiguration;
 import hudson.model.FreeStyleProject;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.util.List;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
-public class PipelineRankerTest {
+@WithJenkins
+class PipelineRankerTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     private MetricsStore store;
     private PipelineRanker ranker;
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         MetricsStore.setInstance(null);
         store = MetricsStore.getInstance();
         ranker = new PipelineRanker();
     }
 
     @Test
-    public void slowestPipelinesRankedCorrectly() {
+    void slowestPipelinesRankedCorrectly() {
         long now = System.currentTimeMillis();
         store.insertBuild("fast-job", 1, now, 2000, "SUCCESS", "USER", null);
         store.insertBuild("slow-job", 1, now, 30000, "SUCCESS", "USER", null);
@@ -42,7 +43,7 @@ public class PipelineRankerTest {
     }
 
     @Test
-    public void mostFailingPipelinesRankedCorrectly() {
+    void mostFailingPipelinesRankedCorrectly() {
         long now = System.currentTimeMillis();
         // good-job: 0% failure
         store.insertBuild("good-job", 1, now, 5000, "SUCCESS", "USER", null);
@@ -57,7 +58,7 @@ public class PipelineRankerTest {
     }
 
     @Test
-    public void flakiestPipelinesDetected() {
+    void flakiestPipelinesDetected() {
         long now = System.currentTimeMillis();
         // Flaky: pass-fail-pass-fail = 100% transitions
         store.insertBuild("flaky-job", 1, now - 4000, 1000, "SUCCESS", "USER", null);
@@ -77,7 +78,7 @@ public class PipelineRankerTest {
     }
 
     @Test
-    public void slowestStagesRanked() {
+    void slowestStagesRanked() {
         long now = System.currentTimeMillis();
         long b1 = store.insertBuild("stage-rank-job", 1, now, 10000, "SUCCESS", "USER", null);
         store.insertStage(b1, "Build", 2000, "SUCCESS");
@@ -91,7 +92,7 @@ public class PipelineRankerTest {
     }
 
     @Test
-    public void mostFailingStagesRanked() {
+    void mostFailingStagesRanked() {
         long now = System.currentTimeMillis();
         long b1 = store.insertBuild("fail-stage-job", 1, now, 10000, "FAILURE", "USER", null);
         store.insertStage(b1, "Build", 2000, "SUCCESS");
@@ -107,7 +108,7 @@ public class PipelineRankerTest {
     }
 
     @Test
-    public void limitRespected() {
+    void limitRespected() {
         long now = System.currentTimeMillis();
         for (int i = 0; i < 20; i++) {
             store.insertBuild("limit-job-" + i, 1, now, 5000 + i * 1000, "SUCCESS", "USER", null);
@@ -118,7 +119,7 @@ public class PipelineRankerTest {
     }
 
     @Test
-    public void ignoresDisabledPipelinesWhenConfigured() throws Exception {
+    void ignoresDisabledPipelinesWhenConfigured() throws Exception {
         DoraGlobalConfiguration config = DoraGlobalConfiguration.get();
         j.createFreeStyleProject("rank-active");
         FreeStyleProject disabled = j.createFreeStyleProject("rank-disabled");

@@ -1,39 +1,38 @@
 package io.jenkins.plugins.dorametrics.ui;
 
-import hudson.model.FreeStyleProject;
 import hudson.model.RootAction;
 import jenkins.model.Jenkins;
 import org.htmlunit.html.DomElement;
 import org.htmlunit.html.HtmlPage;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.JenkinsRule.WebClient;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import io.jenkins.plugins.dorametrics.rankings.PipelineRanker.RankedPipeline;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.util.List;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
-public class DoraDashboardActionTest {
+@WithJenkins
+class DoraDashboardActionTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     @Test
-    public void extensionRegistered() {
+    void extensionRegistered() {
         DoraDashboardAction action = Jenkins.get().getExtensionList(RootAction.class)
                 .get(DoraDashboardAction.class);
-        assertNotNull("DoraDashboardAction should be registered", action);
+        assertNotNull(action, "DoraDashboardAction should be registered");
         assertEquals("dora-metrics", action.getUrlName());
         assertEquals("DORA Metrics", action.getDisplayName());
         assertNotNull(action.getIconFileName());
     }
 
     @Test
-    public void doraMetricsNotNull() {
+    void doraMetricsNotNull() {
         DoraDashboardAction action = new DoraDashboardAction();
         assertNotNull(action.getDeploymentFrequency());
         assertNotNull(action.getLeadTime());
@@ -42,7 +41,7 @@ public class DoraDashboardActionTest {
     }
 
     @Test
-    public void rankingsNotNull() {
+    void rankingsNotNull() {
         DoraDashboardAction action = new DoraDashboardAction();
         assertNotNull(action.getSlowestPipelines());
         assertNotNull(action.getMostFailingPipelines());
@@ -53,7 +52,7 @@ public class DoraDashboardActionTest {
     }
 
     @Test
-    public void jobUrlConvertsCorrectly() {
+    void jobUrlConvertsCorrectly() {
         DoraDashboardAction action = new DoraDashboardAction();
         assertEquals("job/production/job/api-gateway", action.jobUrl("production/api-gateway"));
         assertEquals("job/simple-job", action.jobUrl("simple-job"));
@@ -61,8 +60,9 @@ public class DoraDashboardActionTest {
         assertEquals("", action.jobUrl(null));
     }
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         MetricsStore.setInstance(null);
     }
 
@@ -73,9 +73,9 @@ public class DoraDashboardActionTest {
     }
 
     @Test
-    public void dashboardPageLoads() throws Exception {
+    void dashboardPageLoads() throws Exception {
         HtmlPage page = noJsClient().goTo("dora-metrics");
-        assertNotNull("Dashboard page should load", page);
+        assertNotNull(page, "Dashboard page should load");
         assertEquals(200, page.getWebResponse().getStatusCode());
     }
 
@@ -86,63 +86,63 @@ public class DoraDashboardActionTest {
      * ids are part of the contract between the view and the script.
      */
     @Test
-    public void kpiCardsExposeIdsForDateRangeRefresh() throws Exception {
+    void kpiCardsExposeIdsForDateRangeRefresh() throws Exception {
         HtmlPage page = noJsClient().goTo("dora-metrics");
         String html = page.getWebResponse().getContentAsString();
         for (String slug : new String[] {"df", "lt", "mttr", "cfr"}) {
-            assertTrue("KPI value element id=kpi-" + slug + "-value must exist so the "
-                            + "date-range handler can refresh it",
-                    html.contains("id=\"kpi-" + slug + "-value\""));
-            assertTrue("KPI band element id=kpi-" + slug + "-band must exist so the "
-                            + "date-range handler can refresh it",
-                    html.contains("id=\"kpi-" + slug + "-band\""));
+            assertTrue(html.contains("id=\"kpi-" + slug + "-value\""),
+                    "KPI value element id=kpi-" + slug + "-value must exist so the "
+                            + "date-range handler can refresh it");
+            assertTrue(html.contains("id=\"kpi-" + slug + "-band\""),
+                    "KPI band element id=kpi-" + slug + "-band must exist so the "
+                            + "date-range handler can refresh it");
         }
     }
 
     @Test
-    public void tablesHaveSmallClass() throws Exception {
+    void tablesHaveSmallClass() throws Exception {
         HtmlPage page = noJsClient().goTo("dora-metrics");
         List<DomElement> tables = page.getByXPath("//table[contains(@class, 'jenkins-table')]");
-        assertFalse("Dashboard should have tables", tables.isEmpty());
+        assertFalse(tables.isEmpty(), "Dashboard should have tables");
         for (DomElement table : tables) {
             String classes = table.getAttribute("class");
-            assertTrue("Table should have jenkins-table--small: " + classes,
-                    classes.contains("jenkins-table--small"));
+            assertTrue(classes.contains("jenkins-table--small"),
+                    "Table should have jenkins-table--small: " + classes);
         }
     }
 
     @Test
-    public void dashboardHasAppBar() throws Exception {
+    void dashboardHasAppBar() throws Exception {
         HtmlPage page = noJsClient().goTo("dora-metrics");
         // l:app-bar renders with id="view-message" or class containing "jenkins-app-bar"
         List<DomElement> appBars = page.getByXPath("//*[contains(@class, 'jenkins-app-bar')]");
-        assertFalse("Dashboard should have an app bar", appBars.isEmpty());
+        assertFalse(appBars.isEmpty(), "Dashboard should have an app bar");
     }
 
     @Test
-    public void activeButtonHasPrimaryClass() throws Exception {
+    void activeButtonHasPrimaryClass() throws Exception {
         HtmlPage page = noJsClient().goTo("dora-metrics");
         // The default active button (30d) should have jenkins-button--primary
         List<DomElement> primaryBtns = page.getByXPath(
                 "//button[contains(@class, 'dora-date-btn') and contains(@class, 'jenkins-button--primary')]");
-        assertEquals("Exactly one date button should be primary", 1, primaryBtns.size());
+        assertEquals(1, primaryBtns.size(), "Exactly one date button should be primary");
         assertEquals("30", primaryBtns.get(0).getAttribute("data-days"));
 
         // All other date buttons should be tertiary
         List<DomElement> tertiaryBtns = page.getByXPath(
                 "//button[contains(@class, 'dora-date-btn') and contains(@class, 'jenkins-button--tertiary')]");
-        assertEquals("Four date buttons should be tertiary", 4, tertiaryBtns.size());
+        assertEquals(4, tertiaryBtns.size(), "Four date buttons should be tertiary");
     }
 
     @Test
-    public void dashboardHasDoraSections() throws Exception {
+    void dashboardHasDoraSections() throws Exception {
         HtmlPage page = noJsClient().goTo("dora-metrics");
         List<DomElement> sections = page.getByXPath("//*[contains(@class, 'dora-toggle')]");
-        assertTrue("Dashboard should have collapsible sections", sections.size() >= 3);
+        assertTrue(sections.size() >= 3, "Dashboard should have collapsible sections");
     }
 
     @Test
-    public void tableLinksHaveLinkClass() throws Exception {
+    void tableLinksHaveLinkClass() throws Exception {
         // Create a real job AND seed build data so the filter passes
         j.createFreeStyleProject("test-link-job");
         MetricsStore.getInstance().insertBuild("test-link-job", 1,
@@ -151,11 +151,11 @@ public class DoraDashboardActionTest {
         List<DomElement> tableLinks = page.getByXPath(
                 "//table[contains(@class, 'jenkins-table')]//a[contains(@class, 'jenkins-table__link')]");
         // With one build, at least the slowest pipelines table should have a link
-        assertFalse("Table links should have jenkins-table__link class", tableLinks.isEmpty());
+        assertFalse(tableLinks.isEmpty(), "Table links should have jenkins-table__link class");
     }
 
     @Test
-    public void rankingsFilterByJobPermission() throws Exception {
+    void rankingsFilterByJobPermission() throws Exception {
         // Create jobs and seed build data
         j.createFreeStyleProject("visible-job");
         j.createFreeStyleProject("hidden-job");
@@ -170,22 +170,22 @@ public class DoraDashboardActionTest {
         // Without security, all existing jobs visible, deleted-job filtered out
         DoraDashboardAction action = new DoraDashboardAction();
         List<RankedPipeline> slowest = action.getSlowestPipelines();
-        assertTrue("Should see visible-job",
-                slowest.stream().anyMatch(p -> p.jobName.equals("visible-job")));
-        assertTrue("Should see hidden-job",
-                slowest.stream().anyMatch(p -> p.jobName.equals("hidden-job")));
-        assertFalse("Should NOT see deleted-job (no longer exists in Jenkins)",
-                slowest.stream().anyMatch(p -> p.jobName.equals("deleted-job")));
+        assertTrue(slowest.stream().anyMatch(p -> p.jobName.equals("visible-job")),
+                "Should see visible-job");
+        assertTrue(slowest.stream().anyMatch(p -> p.jobName.equals("hidden-job")),
+                "Should see hidden-job");
+        assertFalse(slowest.stream().anyMatch(p -> p.jobName.equals("deleted-job")),
+                "Should NOT see deleted-job (no longer exists in Jenkins)");
     }
 
     @Test
-    public void collapsibleSectionsHaveChevrons() throws Exception {
+    void collapsibleSectionsHaveChevrons() throws Exception {
         HtmlPage page = noJsClient().goTo("dora-metrics");
         List<DomElement> toggles = page.getByXPath("//*[contains(@class, 'dora-toggle')]");
         for (DomElement toggle : toggles) {
             List<DomElement> chevrons = toggle.getByXPath(".//span[contains(@class, 'dora-chevron')]");
-            assertFalse("Each toggle section should have a chevron: " + toggle.getTextContent().trim(),
-                    chevrons.isEmpty());
+            assertFalse(chevrons.isEmpty(),
+                    "Each toggle section should have a chevron: " + toggle.getTextContent().trim());
         }
     }
 }

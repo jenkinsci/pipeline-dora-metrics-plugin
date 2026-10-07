@@ -5,11 +5,11 @@ import com.cloudbees.plugins.credentials.SystemCredentialsProvider;
 import com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -20,27 +20,28 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * Uploads to a local server that checks the AWS Signature V4 the way S3 does, from what
  * actually arrived: method, path, Host header and the signed headers.
  */
-public class S3SigningTest {
+@WithJenkins
+class S3SigningTest {
 
     private static final String ACCESS_KEY = "AKIDEXAMPLE";
     private static final String SECRET_KEY = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     private HttpServer server;
     private final AtomicReference<String> verdict = new AtomicReference<>();
     private final AtomicReference<String> path = new AtomicReference<>();
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeEach
+    void setUp(JenkinsRule rule) throws Exception {
+        j = rule;
         SystemCredentialsProvider.getInstance().getCredentials().add(new UsernamePasswordCredentialsImpl(
                 CredentialsScope.GLOBAL, "s3-creds", "", ACCESS_KEY, SECRET_KEY));
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -48,8 +49,8 @@ public class S3SigningTest {
         server.start();
     }
 
-    @After
-    public void tearDown() {
+    @AfterEach
+    void tearDown() {
         server.stop(0);
     }
 
@@ -119,14 +120,14 @@ public class S3SigningTest {
     }
 
     @Test
-    public void theServerAcceptsTheSignature() throws Exception {
+    void theServerAcceptsTheSignature() throws Exception {
         s3(local()).upload("{\"builds\":[]}", "dora-metrics/2026-09-28/snapshot.json");
         assertEquals("ok", verdict.get());
         assertEquals("/dora-snapshots/dora-metrics/2026-09-28/snapshot.json", path.get());
     }
 
     @Test
-    public void aTrailingSlashOnTheEndpointChangesNothing() throws Exception {
+    void aTrailingSlashOnTheEndpointChangesNothing() throws Exception {
         s3(local() + "/").upload("{}", "dora-metrics/snapshot.json");
         assertNotNull(verdict.get());
         assertEquals("ok", verdict.get());
@@ -134,7 +135,7 @@ public class S3SigningTest {
     }
 
     @Test
-    public void regionsAreReadFromTheCommonEndpointForms() {
+    void regionsAreReadFromTheCommonEndpointForms() {
         assertEquals("us-east-1", S3ExportConfig.extractRegion("https://s3.amazonaws.com"));
         assertEquals("eu-west-1", S3ExportConfig.extractRegion("https://s3.eu-west-1.amazonaws.com"));
         assertEquals("eu-west-1", S3ExportConfig.extractRegion("https://s3-eu-west-1.amazonaws.com"));
@@ -147,7 +148,7 @@ public class S3SigningTest {
     }
 
     @Test
-    public void anEmptyEndpointMeansAws() {
+    void anEmptyEndpointMeansAws() {
         assertEquals("https://s3.amazonaws.com", S3ExportConfig.endpointOrDefault(""));
         assertEquals("https://s3.amazonaws.com", S3ExportConfig.endpointOrDefault(null));
         assertEquals("https://s3.eu-west-1.amazonaws.com", S3ExportConfig.endpointOrDefault("https://s3.eu-west-1.amazonaws.com//"));
