@@ -1,8 +1,12 @@
 package io.jenkins.plugins.dorametrics.store;
 
 import jenkins.model.Jenkins;
+import jenkins.util.SystemProperties;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -12,34 +16,63 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
 /**
  * SQLite embedded database for storing build metrics.
- * Located at JENKINS_HOME/pipeline-dora-metrics/metrics.db
+ * Located at JENKINS_HOME/pipeline-dora-metrics/metrics.db, or in the directory named by the
+ * {@link #DIRECTORY_PROPERTY} system property.
  */
 public class MetricsStore {
 
     private static final Logger LOGGER = Logger.getLogger(MetricsStore.class.getName());
-    private static MetricsStore instance;
+    private static volatile MetricsStore instance;
 
     private static final Set<String> ALLOWED_ORDER_BY = Set.of(
             "avg_dur DESC", "avg_dur ASC", "failures DESC", "failures ASC",
             "total DESC", "total ASC", "failure_rate DESC"
     );
 
+    /** A directory for the database instead of JENKINS_HOME, for example on local disk. */
+    public static final String DIRECTORY_PROPERTY = MetricsStore.class.getName() + ".directory";
+
+    /** Filesystem types SQLite should not be used on: its locking and syncing are unreliable there. */
+    private static final Set<String> NETWORK_FILE_SYSTEMS = Set.of(
+            "nfs", "nfs4", "cifs", "smb", "smbfs", "smb2", "smb3", "afpfs", "webdav", "fuse.sshfs",
+            "glusterfs", "fuse.glusterfs", "ceph", "fuse.ceph", "lustre");
+
     private final String dbUrl;
+    private final File dbFile;
+    private final String networkFileSystem;
+
+    // Writes share one connection, so this process never competes with itself for the write
+    // lock, and the -wal and -shm files are not created and removed again for every write.
+    private final ReentrantLock writeLock = new ReentrantLock();
+    private Connection writeConnection;
+    /** How long a write waits for another write in this process, as busy_timeout does for other processes. */
+    long writeLockTimeoutMs = 5000;
 
     private MetricsStore() {
-        File jenkinsHome = Jenkins.get().getRootDir();
-        File dbDir = new File(jenkinsHome, "pipeline-dora-metrics");
-        if (!dbDir.exists()) {
-            dbDir.mkdirs();
+        File dbDir = databaseDirectory();
+        if (!dbDir.isDirectory() && !dbDir.mkdirs()) {
+            LOGGER.severe("Pipeline DORA Metrics: cannot create " + dbDir
+                    + ", so builds are not recorded until it exists and Jenkins can write to it");
         }
-        this.dbUrl = "jdbc:sqlite:" + new File(dbDir, "metrics.db").getAbsolutePath();
+        this.dbFile = new File(dbDir, "metrics.db");
+        this.dbUrl = "jdbc:sqlite:" + dbFile.getAbsolutePath();
+        this.networkFileSystem = networkFileSystemType(dbDir.toPath());
+        if (networkFileSystem != null) {
+            LOGGER.warning("Pipeline DORA Metrics: the database at " + dbFile + " is on a network filesystem ("
+                    + networkFileSystem + "). SQLite is not reliable there; move it to local disk with -D"
+                    + DIRECTORY_PROPERTY + "=<directory>");
+        }
 
         try {
             Class.forName("org.sqlite.JDBC");
@@ -52,13 +85,60 @@ public class MetricsStore {
 
     /** Constructor for testing. */
     MetricsStore(String dbUrl) {
+        this(dbUrl, null);
+    }
+
+    /** Constructor for testing, as if the database were on a filesystem of the given type. */
+    MetricsStore(String dbUrl, String networkFileSystem) {
         this.dbUrl = dbUrl;
+        this.dbFile = null;
+        this.networkFileSystem = networkFileSystem;
         try {
             Class.forName("org.sqlite.JDBC");
         } catch (ClassNotFoundException e) {
             LOGGER.log(Level.SEVERE, "SQLite JDBC driver not found", e);
         }
         initializeSchema();
+    }
+
+    private static File databaseDirectory() {
+        String configured = SystemProperties.getString(DIRECTORY_PROPERTY);
+        if (configured != null && !configured.isBlank()) {
+            File dir = new File(configured.trim()).getAbsoluteFile();
+            LOGGER.info("Pipeline DORA Metrics: keeping the database in " + dir);
+            return dir;
+        }
+        return new File(Jenkins.get().getRootDir(), "pipeline-dora-metrics");
+    }
+
+    /** The type of the filesystem {@code dir} is on when it is a network one, otherwise null. */
+    static String networkFileSystemType(Path dir) {
+        try {
+            String type = Files.getFileStore(dir).type();
+            return isNetworkFileSystem(type) ? type : null;
+        } catch (IOException | RuntimeException e) {
+            LOGGER.log(Level.FINE, "Could not tell which filesystem " + dir + " is on", e);
+            return null;
+        }
+    }
+
+    static boolean isNetworkFileSystem(String type) {
+        return type != null && NETWORK_FILE_SYSTEMS.contains(type.toLowerCase(Locale.ROOT));
+    }
+
+    /** The network filesystem the database is on, or null when it is on local storage or unknown. */
+    public String getNetworkFileSystem() {
+        return networkFileSystem;
+    }
+
+    /** The database file, or null for a store opened by URL in tests. */
+    public File getDatabaseFile() {
+        return dbFile;
+    }
+
+    /** The store if one is open, without opening one: for callers that must never wait on the database. */
+    public static MetricsStore existingInstance() {
+        return instance;
     }
 
     public static synchronized MetricsStore getInstance() {
@@ -70,17 +150,148 @@ public class MetricsStore {
 
     /** Reset singleton. Used by tests to reinitialize with fresh Jenkins home. */
     public static synchronized void setInstance(MetricsStore store) {
+        if (instance != null && instance != store) {
+            instance.close();
+        }
         instance = store;
+    }
+
+    /** Closes the shared write connection when Jenkins stops; the next write opens it again. */
+    public static void closeOnShutdown() {
+        MetricsStore store;
+        synchronized (MetricsStore.class) {
+            store = instance;
+        }
+        if (store != null && !store.closeIfFree(2, TimeUnit.SECONDS)) {
+            LOGGER.warning("Pipeline DORA Metrics: a write is still running, leaving the database to close with Jenkins");
+        }
+    }
+
+    /** Closes the shared write connection unless a write holds it for longer than the timeout. */
+    boolean closeIfFree(long timeout, TimeUnit unit) {
+        try {
+            if (!writeLock.tryLock(timeout, unit)) {
+                return false;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+        try {
+            closeQuietly(writeConnection);
+            writeConnection = null;
+            return true;
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    /** Holds the write lock until {@code release} opens, for tests that need a write in progress. */
+    void holdWriteLockUntil(CountDownLatch held, CountDownLatch release)
+            throws InterruptedException {
+        writeLock.lock();
+        try {
+            held.countDown();
+            release.await();
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    /** Closes the shared write connection. A later write opens a new one. */
+    public void close() {
+        writeLock.lock();
+        try {
+            closeQuietly(writeConnection);
+            writeConnection = null;
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    /** Whether the shared write connection is open, for tests. */
+    boolean writeConnectionOpen() {
+        writeLock.lock();
+        try {
+            return writeConnection != null && !writeConnection.isClosed();
+        } catch (SQLException e) {
+            return false;
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    @FunctionalInterface
+    private interface Write<T> {
+        T run(Connection conn) throws SQLException;
+    }
+
+    /**
+     * Runs {@code write} on the shared write connection, one write at a time. A transaction the
+     * write left open is rolled back, and a connection that failed for any reason other than
+     * another process holding the lock is closed, so the next write starts on a fresh one.
+     */
+    private <T> T write(Write<T> write) throws SQLException {
+        try {
+            if (!writeLock.tryLock(writeLockTimeoutMs, TimeUnit.MILLISECONDS)) {
+                throw new org.sqlite.SQLiteException("Another write in Jenkins kept the database busy for longer than "
+                        + writeLockTimeoutMs + "ms", org.sqlite.SQLiteErrorCode.SQLITE_BUSY);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new SQLException("Interrupted while waiting to write", e);
+        }
+        try {
+            if (writeConnection == null || writeConnection.isClosed()) {
+                writeConnection = getConnection();
+            }
+            Connection conn = writeConnection;
+            try {
+                return write.run(conn);
+            } catch (SQLException e) {
+                if (!isBusy(e)) {
+                    closeQuietly(conn);
+                    writeConnection = null;
+                }
+                throw e;
+            } finally {
+                if (writeConnection != null) {
+                    try {
+                        // setAutoCommit(true) commits, so only after a rollback that worked
+                        if (!writeConnection.getAutoCommit()) {
+                            if (rollbackQuietly(writeConnection)) {
+                                writeConnection.setAutoCommit(true);
+                            } else {
+                                closeQuietly(writeConnection);
+                                writeConnection = null;
+                            }
+                        }
+                    } catch (SQLException e) {
+                        closeQuietly(writeConnection);
+                        writeConnection = null;
+                    }
+                }
+            }
+        } finally {
+            writeLock.unlock();
+        }
     }
 
     private Connection getConnection() throws SQLException {
         Connection conn = DriverManager.getConnection(dbUrl);
-        try (Statement stmt = conn.createStatement()) {
-            stmt.execute("PRAGMA journal_mode=WAL");
-            stmt.execute("PRAGMA busy_timeout=5000");
+        try {
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute("PRAGMA busy_timeout=5000");
+                stmt.execute("PRAGMA journal_mode=WAL");
+                // the write connection stays open, so cap the WAL file once it has been checkpointed
+                stmt.execute("PRAGMA journal_size_limit=8388608");
+            }
+            org.sqlite.Function.create(conn, "REGEXP", new RegexpFunction());
+            return conn;
+        } catch (SQLException e) {
+            closeQuietly(conn);
+            throw e;
         }
-        org.sqlite.Function.create(conn, "REGEXP", new RegexpFunction());
-        return conn;
     }
 
     /**
@@ -111,7 +322,19 @@ public class MetricsStore {
     }
 
     private void initializeSchema() {
-        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+        try {
+            write(conn -> {
+                createSchema(conn);
+                return null;
+            });
+            LOGGER.info("Pipeline DORA Metrics: database initialized");
+        } catch (SQLException e) {
+            LOGGER.log(Level.SEVERE, "Failed to initialize metrics database", e);
+        }
+    }
+
+    private static void createSchema(Connection conn) throws SQLException {
+        try (Statement stmt = conn.createStatement()) {
             stmt.execute("CREATE TABLE IF NOT EXISTS builds ("
                     + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
                     + "job_name TEXT NOT NULL,"
@@ -147,10 +370,6 @@ public class MetricsStore {
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_builds_result ON builds(result)");
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_stages_build ON stages(build_id)");
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_commits_build ON commits(build_id)");
-
-            LOGGER.info("Pipeline DORA Metrics: database initialized");
-        } catch (SQLException e) {
-            LOGGER.log(Level.SEVERE, "Failed to initialize metrics database", e);
         }
     }
 
@@ -209,75 +428,72 @@ public class MetricsStore {
                 + "branch = excluded.branch "
                 + "RETURNING id";
 
-        Connection conn = null;
         try {
-            conn = getConnection();
-            conn.setAutoCommit(false);
-            long buildId;
+            return write(conn -> {
+                conn.setAutoCommit(false);
+                long buildId;
 
-            try (PreparedStatement ps = conn.prepareStatement(upsert)) {
-                ps.setString(1, jobName);
-                ps.setInt(2, buildNumber);
-                ps.setLong(3, timestamp);
-                ps.setLong(4, durationMs);
-                ps.setString(5, result);
-                ps.setString(6, triggerType);
-                ps.setString(7, branch);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (!rs.next()) {
-                        conn.rollback();
-                        LOGGER.log(Level.WARNING, "No id returned for " + jobName + "#" + buildNumber);
-                        return -1;
+                try (PreparedStatement ps = conn.prepareStatement(upsert)) {
+                    ps.setString(1, jobName);
+                    ps.setInt(2, buildNumber);
+                    ps.setLong(3, timestamp);
+                    ps.setLong(4, durationMs);
+                    ps.setString(5, result);
+                    ps.setString(6, triggerType);
+                    ps.setString(7, branch);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (!rs.next()) {
+                            conn.rollback();
+                            LOGGER.log(Level.WARNING, "No id returned for " + jobName + "#" + buildNumber);
+                            return -1L;
+                        }
+                        buildId = rs.getLong(1);
                     }
-                    buildId = rs.getLong(1);
                 }
-            }
 
-            // Replace rather than add to: this build may have been recorded before.
-            try (PreparedStatement ps = conn.prepareStatement("DELETE FROM stages WHERE build_id = ?")) {
-                ps.setLong(1, buildId);
-                ps.executeUpdate();
-            }
-            try (PreparedStatement ps = conn.prepareStatement("DELETE FROM commits WHERE build_id = ?")) {
-                ps.setLong(1, buildId);
-                ps.executeUpdate();
-            }
+                // Replace rather than add to: this build may have been recorded before.
+                try (PreparedStatement ps = conn.prepareStatement("DELETE FROM stages WHERE build_id = ?")) {
+                    ps.setLong(1, buildId);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement("DELETE FROM commits WHERE build_id = ?")) {
+                    ps.setLong(1, buildId);
+                    ps.executeUpdate();
+                }
 
-            if (stages != null && !stages.isEmpty()) {
-                try (PreparedStatement ps = conn.prepareStatement(
-                        "INSERT INTO stages (build_id, stage_name, duration_ms, result) VALUES (?, ?, ?, ?)")) {
-                    for (StageRow stage : stages) {
-                        ps.setLong(1, buildId);
-                        ps.setString(2, stage.name);
-                        ps.setLong(3, stage.durationMs);
-                        ps.setString(4, stage.result);
-                        ps.addBatch();
+                if (stages != null && !stages.isEmpty()) {
+                    try (PreparedStatement ps = conn.prepareStatement(
+                            "INSERT INTO stages (build_id, stage_name, duration_ms, result) VALUES (?, ?, ?, ?)")) {
+                        for (StageRow stage : stages) {
+                            ps.setLong(1, buildId);
+                            ps.setString(2, stage.name);
+                            ps.setLong(3, stage.durationMs);
+                            ps.setString(4, stage.result);
+                            ps.addBatch();
+                        }
+                        ps.executeBatch();
                     }
-                    ps.executeBatch();
                 }
-            }
-            if (commits != null && !commits.isEmpty()) {
-                try (PreparedStatement ps = conn.prepareStatement(
-                        "INSERT INTO commits (build_id, commit_sha, author, timestamp) VALUES (?, ?, ?, ?)")) {
-                    for (CommitRow commit : commits) {
-                        ps.setLong(1, buildId);
-                        ps.setString(2, commit.sha);
-                        ps.setString(3, commit.author);
-                        ps.setLong(4, commit.timestamp);
-                        ps.addBatch();
+                if (commits != null && !commits.isEmpty()) {
+                    try (PreparedStatement ps = conn.prepareStatement(
+                            "INSERT INTO commits (build_id, commit_sha, author, timestamp) VALUES (?, ?, ?, ?)")) {
+                        for (CommitRow commit : commits) {
+                            ps.setLong(1, buildId);
+                            ps.setString(2, commit.sha);
+                            ps.setString(3, commit.author);
+                            ps.setLong(4, commit.timestamp);
+                            ps.addBatch();
+                        }
+                        ps.executeBatch();
                     }
-                    ps.executeBatch();
                 }
-            }
 
-            conn.commit();
-            return buildId;
+                conn.commit();
+                return buildId;
+            });
         } catch (SQLException e) {
-            rollbackQuietly(conn);
             LOGGER.log(Level.WARNING, "Failed to record build: " + jobName + "#" + buildNumber, e);
             return -1;
-        } finally {
-            closeQuietly(conn);
         }
     }
 
@@ -296,14 +512,16 @@ public class MetricsStore {
                 Collections.emptyList(), Collections.emptyList());
     }
 
-    private static void rollbackQuietly(Connection conn) {
+    private static boolean rollbackQuietly(Connection conn) {
         if (conn == null) {
-            return;
+            return false;
         }
         try {
             conn.rollback();
+            return true;
         } catch (SQLException e) {
             LOGGER.log(Level.FINE, "Could not roll back", e);
+            return false;
         }
     }
 
@@ -320,13 +538,16 @@ public class MetricsStore {
 
     public void insertStage(long buildId, String stageName, long durationMs, String result) {
         String sql = "INSERT INTO stages (build_id, stage_name, duration_ms, result) VALUES (?, ?, ?, ?)";
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setLong(1, buildId);
-            ps.setString(2, stageName);
-            ps.setLong(3, durationMs);
-            ps.setString(4, result);
-            ps.executeUpdate();
+        try {
+            write(conn -> {
+                try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                    ps.setLong(1, buildId);
+                    ps.setString(2, stageName);
+                    ps.setLong(3, durationMs);
+                    ps.setString(4, result);
+                    return ps.executeUpdate();
+                }
+            });
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING, "Failed to insert stage: " + stageName, e);
         }
@@ -334,13 +555,16 @@ public class MetricsStore {
 
     public void insertCommit(long buildId, String sha, String author, long timestamp) {
         String sql = "INSERT INTO commits (build_id, commit_sha, author, timestamp) VALUES (?, ?, ?, ?)";
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setLong(1, buildId);
-            ps.setString(2, sha);
-            ps.setString(3, author);
-            ps.setLong(4, timestamp);
-            ps.executeUpdate();
+        try {
+            write(conn -> {
+                try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                    ps.setLong(1, buildId);
+                    ps.setString(2, sha);
+                    ps.setString(3, author);
+                    ps.setLong(4, timestamp);
+                    return ps.executeUpdate();
+                }
+            });
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING, "Failed to insert commit: " + sha, e);
         }
@@ -936,20 +1160,15 @@ public class MetricsStore {
 
     private static final int BUSY_ATTEMPTS = 3;
 
-    @FunctionalInterface
-    private interface Write {
-        int run(Connection conn) throws SQLException;
-    }
-
     /**
      * Runs a write, trying again when another writer kept the database locked for
      * longer than busy_timeout. Used for the writes that keep a job's history tied
      * to the right name, where giving up leaves the history under a stale name.
      */
-    private int writeRetryingWhenBusy(Write write) throws SQLException {
+    private int writeRetryingWhenBusy(Write<Integer> write) throws SQLException {
         for (int attempt = 1; ; attempt++) {
-            try (Connection conn = getConnection()) {
-                return write.run(conn);
+            try {
+                return write(write);
             } catch (SQLException e) {
                 if (attempt >= BUSY_ATTEMPTS || !isBusy(e)) {
                     throw e;
@@ -974,40 +1193,46 @@ public class MetricsStore {
     // === Maintenance ===
 
     public void cleanup(long retainAfterTimestamp) {
-        try (Connection conn = getConnection()) {
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "DELETE FROM commits WHERE build_id IN (SELECT id FROM builds WHERE timestamp < ?)")) {
-                ps.setLong(1, retainAfterTimestamp);
-                ps.executeUpdate();
-            }
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "DELETE FROM stages WHERE build_id IN (SELECT id FROM builds WHERE timestamp < ?)")) {
-                ps.setLong(1, retainAfterTimestamp);
-                ps.executeUpdate();
-            }
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "DELETE FROM builds WHERE timestamp < ?")) {
-                ps.setLong(1, retainAfterTimestamp);
-                ps.executeUpdate();
-            }
-
-            // Rows whose build is gone entirely. Retention looks children up through their
-            // parent, so anything orphaned by an older version of this plugin was never
-            // reachable and would sit there for good.
-            try (Statement stmt = conn.createStatement()) {
-                int stages = stmt.executeUpdate(
-                        "DELETE FROM stages WHERE build_id NOT IN (SELECT id FROM builds)");
-                int commits = stmt.executeUpdate(
-                        "DELETE FROM commits WHERE build_id NOT IN (SELECT id FROM builds)");
-                if (stages > 0 || commits > 0) {
-                    LOGGER.info("Pipeline DORA Metrics: removed " + stages + " orphaned stage rows and "
-                            + commits + " orphaned commit rows");
-                }
-            }
-
+        try {
+            write(conn -> {
+                deleteOlderThan(conn, retainAfterTimestamp);
+                return null;
+            });
             LOGGER.info("Pipeline DORA Metrics: old data cleaned up");
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING, "Failed to cleanup old metrics", e);
+        }
+    }
+
+    private static void deleteOlderThan(Connection conn, long retainAfterTimestamp) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "DELETE FROM commits WHERE build_id IN (SELECT id FROM builds WHERE timestamp < ?)")) {
+            ps.setLong(1, retainAfterTimestamp);
+            ps.executeUpdate();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "DELETE FROM stages WHERE build_id IN (SELECT id FROM builds WHERE timestamp < ?)")) {
+            ps.setLong(1, retainAfterTimestamp);
+            ps.executeUpdate();
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "DELETE FROM builds WHERE timestamp < ?")) {
+            ps.setLong(1, retainAfterTimestamp);
+            ps.executeUpdate();
+        }
+
+        // Rows whose build is gone entirely. Retention looks children up through their
+        // parent, so anything orphaned by an older version of this plugin was never
+        // reachable and would sit there for good.
+        try (Statement stmt = conn.createStatement()) {
+            int stages = stmt.executeUpdate(
+                    "DELETE FROM stages WHERE build_id NOT IN (SELECT id FROM builds)");
+            int commits = stmt.executeUpdate(
+                    "DELETE FROM commits WHERE build_id NOT IN (SELECT id FROM builds)");
+            if (stages > 0 || commits > 0) {
+                LOGGER.info("Pipeline DORA Metrics: removed " + stages + " orphaned stage rows and "
+                        + commits + " orphaned commit rows");
+            }
         }
     }
 

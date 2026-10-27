@@ -85,7 +85,7 @@ date that isn't one, gets a 400 with the reason in `error`.
 
 ## How It Works
 
-A `RunListener` records every build of a tracked job when it finishes, Pipeline or not. Data is stored in an embedded SQLite database at `JENKINS_HOME/pipeline-dora-metrics/metrics.db`. No external database setup required.
+A `RunListener` records every build of a tracked job when it finishes, Pipeline or not, on a background thread. Data is stored in an embedded SQLite database at `JENKINS_HOME/pipeline-dora-metrics/metrics.db`. No external database setup required.
 
 **Data captured per build:**
 - Job name, build number, timestamp, duration, result
@@ -102,6 +102,12 @@ A `RunListener` records every build of a tracked job when it finishes, Pipeline 
 | Medium (50 jobs) | 200 | ~36MB |
 | Large (200 jobs) | 1000 | ~180MB |
 | Enterprise (1000 jobs) | 5000 | ~900MB |
+
+**Keep the database on local disk.** SQLite's locking and syncing are not reliable on network filesystems such as NFS or EFS, and Manage Jenkins shows a warning when the database is on one. If `JENKINS_HOME` is on network storage, stop Jenkins, copy `pipeline-dora-metrics/metrics.db` to a persistent directory on local disk and start Jenkins with `-Dio.jenkins.plugins.dorametrics.store.MetricsStore.directory=/that/directory`, an absolute path. Moving the folder and linking it back works too. The directory has to survive restarts, so not a pod's `emptyDir`. A store that starts empty on a new machine can be refilled with Import history, for the builds Jenkins still has within the import window.
+
+Back up or replace `metrics.db` only while Jenkins is stopped. While it runs, recent writes can still be in `metrics.db-wal` next to it.
+
+**A build never waits long for it.** Each finished build is written on a background thread. A build waits up to 5 seconds for its own write, so on healthy storage the data is there when it finishes. Past that it finishes anyway and the write carries on behind it, and for the next minute builds do not wait for their writes at all, so slow storage costs one build the wait, not every build. The log says so at most once a minute. When 1000 builds are already waiting to be written, the next ones are skipped, the log says how many once the writer has caught up, and Import history adds them later. Both numbers are system properties, `io.jenkins.plugins.dorametrics.collectors.RecordingQueue.waitSeconds` and `io.jenkins.plugins.dorametrics.collectors.RecordingQueue.capacity`.
 
 ### Build history import
 
@@ -192,6 +198,7 @@ io.jenkins.plugins.dorametrics/
 │   ├── BuildDataCollector      # RunListener, hands finished builds to BuildRecorder
 │   ├── BuildRecorder           # Records a build with its stages, commits and branch
 │   ├── BuildHistoryImporter    # Imports builds already on disk
+│   ├── RecordingQueue          # Writes finished builds in the background, a few seconds of waiting at most
 │   ├── HistoryImportTask       # Runs the first import, once per instance
 │   └── JobRenameListener       # ItemListener, keeps history with renamed and moved jobs, detaches it from deleted ones
 ├── dora/
@@ -204,7 +211,8 @@ io.jenkins.plugins.dorametrics/
 ├── rankings/
 │   └── PipelineRanker          # Pipeline and stage rankings
 ├── store/
-│   ├── MetricsStore            # SQLite database
+│   ├── MetricsStore            # SQLite database, one shared connection for writes
+│   ├── NetworkStorageMonitor   # Manage Jenkins warning when the database is on network storage
 │   ├── MetricsExporter         # Builds snapshots, delegates upload to config
 │   ├── MetricsExportTask       # Scheduled export
 │   └── MetricsMaintenanceTask  # Hourly retention cleanup

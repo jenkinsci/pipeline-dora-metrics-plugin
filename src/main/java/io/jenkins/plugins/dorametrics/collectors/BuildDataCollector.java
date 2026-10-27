@@ -9,7 +9,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Listens to all build completions and hands each one to {@link BuildRecorder}.
+ * Listens to all build completions and hands each one to {@link RecordingQueue}, which writes it
+ * without holding the build up for more than a few seconds.
  */
 @Extension
 public class BuildDataCollector extends RunListener<Run<?, ?>> {
@@ -19,7 +20,7 @@ public class BuildDataCollector extends RunListener<Run<?, ?>> {
     @Override
     public void onCompleted(Run<?, ?> run, TaskListener listener) {
         try {
-            BuildRecorder.record(run);
+            RecordingQueue.record(run);
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "Failed to collect metrics for " + run.getFullDisplayName(), e);
         }
