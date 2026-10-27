@@ -16,34 +16,33 @@ import jenkins.model.Jenkins;
 import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
 import org.htmlunit.Page;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.MockAuthorizationStrategy;
 import org.jvnet.hudson.test.MockFolder;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Recorded build data must follow the Item/Read permission of the job it came
  * from. alice may read only "visible", bob has Overall/Read and nothing else,
  * carol may discover "secret" but not read it.
  */
-public class JobVisibilityTest {
+@WithJenkins
+class JobVisibilityTest {
 
     private static final String SECRET_STAGE = "deploy-to-customer-x";
     private static final String VISIBLE_STAGE = "unit-tests";
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     private MetricsStore store;
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeEach
+    void setUp(JenkinsRule rule) throws Exception {
+        j = rule;
         MetricsStore.setInstance(null);
         store = MetricsStore.getInstance();
 
@@ -85,32 +84,32 @@ public class JobVisibilityTest {
     }
 
     @Test
-    public void exportContainsOnlyReadableJobs() throws Exception {
+    void exportContainsOnlyReadableJobs() throws Exception {
         for (String format : new String[] {"csv", "json"}) {
             String alice = get("alice", "dora-api/export?format=" + format);
-            assertTrue(format + ": alice sees her job", alice.contains("visible"));
-            assertFalse(format + ": alice must not see the secret job", alice.contains("secret"));
-            assertFalse(format + ": alice must not see its branch", alice.contains("release-x"));
+            assertTrue(alice.contains("visible"), format + ": alice sees her job");
+            assertFalse(alice.contains("secret"), format + ": alice must not see the secret job");
+            assertFalse(alice.contains("release-x"), format + ": alice must not see its branch");
 
             String bob = get("bob", "dora-api/export?format=" + format);
-            assertFalse(format + ": bob must not see any job", bob.contains("visible") || bob.contains("secret"));
+            assertFalse(bob.contains("visible") || bob.contains("secret"), format + ": bob must not see any job");
 
             String admin = get("admin", "dora-api/export?format=" + format);
-            assertTrue(format + ": admin sees both", admin.contains("visible") && admin.contains("team/secret"));
+            assertTrue(admin.contains("visible") && admin.contains("team/secret"), format + ": admin sees both");
         }
         JSONObject bobJson = JSONObject.fromObject(get("bob", "dora-api/export"));
         assertEquals(0, bobJson.getInt("total_builds"));
     }
 
     @Test
-    public void trendsOfUnreadableJobLooksLikeMissingJob() throws Exception {
+    void trendsOfUnreadableJobLooksLikeMissingJob() throws Exception {
         assertEquals(200, status("alice", "dora-api/trends?job=visible"));
         assertEquals(200, status("admin", "dora-api/trends?job=team/secret"));
 
         int hidden = status("alice", "dora-api/trends?job=team/secret");
         int missing = status("alice", "dora-api/trends?job=no/such/job");
         assertEquals(404, hidden);
-        assertEquals("no way to tell a hidden job from a missing one", missing, hidden);
+        assertEquals(missing, hidden, "no way to tell a hidden job from a missing one");
         assertEquals(get("alice", "dora-api/trends?job=no/such/job").length(),
                 get("alice", "dora-api/trends?job=team/secret").length());
 
@@ -119,7 +118,7 @@ public class JobVisibilityTest {
     }
 
     @Test
-    public void aggregatesCountOnlyReadableJobs() throws Exception {
+    void aggregatesCountOnlyReadableJobs() throws Exception {
         assertEquals(3, totalBuilds(get("alice", "dora-api/trends")));
         assertEquals(0, totalBuilds(get("bob", "dora-api/trends")));
         assertEquals(6, totalBuilds(get("admin", "dora-api/trends")));
@@ -145,7 +144,7 @@ public class JobVisibilityTest {
     }
 
     @Test
-    public void rankingsApiHidesUnreadableJobsAndSurvivesDiscoverOnly() throws Exception {
+    void rankingsApiHidesUnreadableJobsAndSurvivesDiscoverOnly() throws Exception {
         String alice = get("alice", "dora-api/pipelines");
         assertTrue(alice.contains("visible"));
         assertFalse(alice.contains("secret"));
@@ -156,10 +155,10 @@ public class JobVisibilityTest {
     }
 
     @Test
-    public void dashboardPageHidesStagesOfUnreadableJobs() throws Exception {
+    void dashboardPageHidesStagesOfUnreadableJobs() throws Exception {
         String alice = get("alice", "dora-metrics/");
-        assertTrue("alice sees the stages of her job", alice.contains(VISIBLE_STAGE));
-        assertFalse("stage names of the secret job must not leak", alice.contains(SECRET_STAGE));
+        assertTrue(alice.contains(VISIBLE_STAGE), "alice sees the stages of her job");
+        assertFalse(alice.contains(SECRET_STAGE), "stage names of the secret job must not leak");
         assertFalse(alice.contains("team/secret"));
 
         String carol = get("carol", "dora-metrics/");
@@ -170,21 +169,21 @@ public class JobVisibilityTest {
     }
 
     @Test
-    public void jobPageStillShowsItsOwnNumbers() throws Exception {
+    void jobPageStillShowsItsOwnNumbers() throws Exception {
         assertEquals(200, status("alice", "job/visible/dora-metrics/"));
         assertEquals(404, status("alice", "job/team/job/secret/dora-metrics/"));
         assertEquals(200, status("admin", "job/team/job/secret/dora-metrics/"));
     }
 
     @Test
-    public void deletedJobDoesNotHandItsHistoryToANewJobOfTheSameName() throws Exception {
+    void deletedJobDoesNotHandItsHistoryToANewJobOfTheSameName() throws Exception {
         long from = 0;
         long to = System.currentTimeMillis() + 1000;
         assertEquals(3, store.getBuilds("visible", from, to).size());
 
         j.jenkins.getItem("visible").delete();
-        assertEquals("history is detached from the name", 0, store.getBuilds("visible", from, to).size());
-        assertEquals("but kept for the totals", 6, store.getAllBuilds(from, to).size());
+        assertEquals(0, store.getBuilds("visible", from, to).size(), "history is detached from the name");
+        assertEquals(6, store.getAllBuilds(from, to).size(), "but kept for the totals");
 
         j.createFreeStyleProject("visible");
         assertEquals(0, store.getBuilds("visible", from, to).size());
@@ -200,7 +199,7 @@ public class JobVisibilityTest {
     }
 
     @Test
-    public void deletingAFolderDetachesEverythingBelowIt() throws Exception {
+    void deletingAFolderDetachesEverythingBelowIt() throws Exception {
         long to = System.currentTimeMillis() + 1000;
         j.jenkins.getItem("team").delete();
         assertEquals(0, store.getBuilds("team/secret", 0, to).size());
@@ -209,7 +208,7 @@ public class JobVisibilityTest {
     }
 
     @Test
-    public void credentialIdsAreListedForAdministratorsOnly() throws Exception {
+    void credentialIdsAreListedForAdministratorsOnly() throws Exception {
         Jenkins.MANAGE.setEnabled(true);
         SystemCredentialsProvider.getInstance().getCredentials().add(new UsernamePasswordCredentialsImpl(
                 CredentialsScope.GLOBAL, "export-creds", "for the export", "user", "pass"));

@@ -10,13 +10,13 @@ import org.htmlunit.Page;
 import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.jenkinsci.plugins.workflow.job.WorkflowRun;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
-import org.jvnet.hudson.test.LoggerRule;
+import org.jvnet.hudson.test.LogRecorder;
 import org.jvnet.hudson.test.MockAuthorizationStrategy;
 import org.jvnet.hudson.test.MockFolder;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.io.File;
 import java.sql.Connection;
@@ -25,27 +25,26 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.logging.Level;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * History that is still stored under a job name after that job is gone must not
  * be shown to whoever can read a new job created under the same name.
  */
-public class FollowupVisibilityTest {
+@WithJenkins
+class FollowupVisibilityTest {
 
     private static final String OLD_BRANCH = "release-old-secret";
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
-    @Rule
-    public LoggerRule logs = new LoggerRule().record(MetricsStore.class, Level.FINE).capture(100);
+    private final LogRecorder logs = new LogRecorder().record(MetricsStore.class, Level.FINE).capture(100);
 
     private MetricsStore store;
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         MetricsStore.setInstance(null);
         store = MetricsStore.getInstance();
     }
@@ -94,24 +93,24 @@ public class FollowupVisibilityTest {
     }
 
     private void assertAliceSeesNoOldHistory(String jobName) throws Exception {
-        assertEquals("trends?job= must not show the old job's builds",
-                0, trendBuilds(get("alice", "dora-api/trends?job=" + jobName)));
-        assertFalse("export must not contain the old job's branch",
-                get("alice", "dora-api/export?format=csv").contains(OLD_BRANCH));
+        assertEquals(0,
+                trendBuilds(get("alice", "dora-api/trends?job=" + jobName)), "trends?job= must not show the old job's builds");
+        assertFalse(get("alice", "dora-api/export?format=csv").contains(OLD_BRANCH),
+                "export must not contain the old job's branch");
         assertNoListShowsIt(jobName);
     }
 
     /** The dashboard's stage tables and the rankings, which read the same rows another way. */
     private void assertNoListShowsIt(String recordedName) throws Exception {
-        assertFalse("the stage tables must not show the old job's stages",
-                get("alice", "dora-metrics/").contains("old-secret-stage"));
-        assertFalse("the rankings must not list the old job's builds",
-                get("alice", "dora-api/pipelines?days=30").contains("\"job\":\"" + recordedName + "\""));
+        assertFalse(get("alice", "dora-metrics/").contains("old-secret-stage"),
+                "the stage tables must not show the old job's stages");
+        assertFalse(get("alice", "dora-api/pipelines?days=30").contains("\"job\":\"" + recordedName + "\""),
+                "the rankings must not list the old job's builds");
     }
 
     /** Rows left by a job deleted before the detach existed (or while the plugin was off). */
     @Test
-    public void leftoverRowsOfAGoneJobAreNotHandedToANewJobOfTheSameName() throws Exception {
+    void leftoverRowsOfAGoneJobAreNotHandedToANewJobOfTheSameName() throws Exception {
         seedOldHistory("team/payments");
         MockFolder team = j.createFolder("team");
         FreeStyleProject fresh = team.createProject(FreeStyleProject.class, "payments");
@@ -119,13 +118,13 @@ public class FollowupVisibilityTest {
         // control: alice really can read the new job, so a zero below is not a 404
         assertEquals(200, status("alice", "dora-api/trends?job=team/payments"));
         assertAliceSeesNoOldHistory("team/payments");
-        assertFalse("nor the job's own DORA tab",
-                get("alice", "job/team/job/payments/dora-metrics/").contains("old-secret-stage"));
+        assertFalse(get("alice", "job/team/job/payments/dora-metrics/").contains("old-secret-stage"),
+                "nor the job's own DORA tab");
     }
 
     /** The detach on delete fails when the database is busy for longer than busy_timeout. */
     @Test
-    public void aDetachThatFailsOnABusyDatabaseDoesNotLeaveTheHistoryAttached() throws Exception {
+    void aDetachThatFailsOnABusyDatabaseDoesNotLeaveTheHistoryAttached() throws Exception {
         FreeStyleProject old = j.createFreeStyleProject("busy");
         seedOldHistory("busy");
         File db = new File(j.jenkins.getRootDir(), "pipeline-dora-metrics/metrics.db");
@@ -142,29 +141,29 @@ public class FollowupVisibilityTest {
 
     /** Renaming onto a name that still has rows makes the UPDATE hit UNIQUE(job_name, build_number). */
     @Test
-    public void renamingOntoANameWithLeftoverRowsDoesNotMixTheHistories() throws Exception {
+    void renamingOntoANameWithLeftoverRowsDoesNotMixTheHistories() throws Exception {
         seedOldHistory("target");
         FreeStyleProject mover = j.createFreeStyleProject("mover");
         long now = System.currentTimeMillis();
         store.insertBuild("mover", 1, now, 1000, "SUCCESS", "USER", "main");
         mover.renameTo("target");
         onlyAliceReads(mover);
-        assertEquals("alice sees the renamed job's own build and nothing else", 1,
-                trendBuilds(get("alice", "dora-api/trends?job=target")));
-        assertFalse("the old rows must not come along", get("alice", "dora-api/export?format=csv").contains(OLD_BRANCH));
-        assertEquals("the renamed job keeps its own build", 1,
-                trendBuilds(get("admin", "dora-api/trends?job=target")));
-        assertEquals("nothing left under the old name", 0, rows("mover"));
+        assertEquals(1, trendBuilds(get("alice", "dora-api/trends?job=target")),
+                "alice sees the renamed job's own build and nothing else");
+        assertFalse(get("alice", "dora-api/export?format=csv").contains(OLD_BRANCH), "the old rows must not come along");
+        assertEquals(1, trendBuilds(get("admin", "dora-api/trends?job=target")),
+                "the renamed job keeps its own build");
+        assertEquals(0, rows("mover"), "nothing left under the old name");
     }
 
     /** Jenkins resolves item names case-insensitively; stored rows compare exactly. */
     @Test
-    public void rowsStoredUnderADifferentCaseAreNotVisibleThroughAReadableJob() throws Exception {
+    void rowsStoredUnderADifferentCaseAreNotVisibleThroughAReadableJob() throws Exception {
         seedOldHistory("Secret");
         FreeStyleProject readable = j.createFreeStyleProject("secret");
         onlyAliceReads(readable);
-        assertEquals("control: alice can read the job she has", 200, status("alice", "dora-api/trends?job=secret"));
-        assertEquals("a differently cased name looks like a missing job", 404, status("alice", "dora-api/trends?job=Secret"));
+        assertEquals(200, status("alice", "dora-api/trends?job=secret"), "control: alice can read the job she has");
+        assertEquals(404, status("alice", "dora-api/trends?job=Secret"), "a differently cased name looks like a missing job");
         assertEquals(status("alice", "dora-api/trends?job=no-such-job"), status("alice", "dora-api/trends?job=Secret"));
         assertFalse(get("alice", "dora-api/export?format=csv").contains(OLD_BRANCH));
         assertEquals(0, trendBuilds(get("alice", "dora-api/trends")));
@@ -173,7 +172,7 @@ public class FollowupVisibilityTest {
 
     /** The detach on delete runs into a lock, fails once, and succeeds on a retry once the lock is gone. */
     @Test
-    public void aDetachHitByABriefLockIsRetried() throws Exception {
+    void aDetachHitByABriefLockIsRetried() throws Exception {
         FreeStyleProject old = j.createFreeStyleProject("brief");
         seedOldHistory("brief");
         File db = new File(j.jenkins.getRootDir(), "pipeline-dora-metrics/metrics.db");
@@ -197,14 +196,13 @@ public class FollowupVisibilityTest {
         locked.await();
         old.delete();
         holder.join();
-        assertEquals("the first attempt hit the lock", true,
-                logs.getMessages().stream().anyMatch(m -> m.startsWith("Database busy, trying again (1/")));
-        assertEquals("detached at delete time, before any new job exists", 0, rows("brief"));
+        assertTrue(logs.getMessages().stream().anyMatch(m -> m.startsWith("Database busy, trying again (1/")), "the first attempt hit the lock");
+        assertEquals(0, rows("brief"), "detached at delete time, before any new job exists");
     }
 
     /** A copy is created through onCopied, which Jenkins routes to onCreated. */
     @Test
-    public void aCopyDoesNotInheritLeftoverRowsUnderItsName() throws Exception {
+    void aCopyDoesNotInheritLeftoverRowsUnderItsName() throws Exception {
         seedOldHistory("copied");
         FreeStyleProject src = j.createFreeStyleProject("template");
         FreeStyleProject copy = (FreeStyleProject) j.jenkins.copy((hudson.model.TopLevelItem) src, "copied");
@@ -215,19 +213,19 @@ public class FollowupVisibilityTest {
 
     /** A run finishing after its job is gone and its name reused must not be recorded under that name. */
     @Test
-    public void aRunOfADeletedJobIsNotRecordedUnderTheNameOfANewJob() throws Exception {
+    void aRunOfADeletedJobIsNotRecordedUnderTheNameOfANewJob() throws Exception {
         FreeStyleProject old = j.createFreeStyleProject("reused");
         hudson.model.FreeStyleBuild oldRun = j.buildAndAssertSuccess(old);
         old.delete();
         j.createFreeStyleProject("reused");
         new io.jenkins.plugins.dorametrics.collectors.BuildDataCollector()
                 .onCompleted(oldRun, hudson.model.TaskListener.NULL);
-        assertEquals("nothing may be written under the new job's name", 0, rows("reused"));
+        assertEquals(0, rows("reused"), "nothing may be written under the new job's name");
     }
 
     /** Deleting a running pipeline aborts it; its record must end up detached, not under the bare name. */
     @Test
-    public void aBuildAbortedByDeletingItsJobEndsUpDetached() throws Exception {
+    void aBuildAbortedByDeletingItsJobEndsUpDetached() throws Exception {
         WorkflowJob p = j.createProject(WorkflowJob.class, "late");
         p.setDefinition(new CpsFlowDefinition("stage('s') { sleep 3 }", true));
         WorkflowRun run = p.scheduleBuild2(0).waitForStart();

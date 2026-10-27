@@ -3,57 +3,58 @@ package io.jenkins.plugins.dorametrics.collectors;
 import hudson.model.FreeStyleBuild;
 import hudson.model.FreeStyleProject;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * The build history import calls {@link BuildRecorder#record} directly, without the listener,
  * and can reach a run after its job is gone. The name check has to hold on that path too.
  */
-public class BuildRecorderNameTest {
+@WithJenkins
+class BuildRecorderNameTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         MetricsStore.setInstance(null);
     }
 
     @Test
-    public void recordStillStoresARunOfAnExistingJob() throws Exception {
+    void recordStillStoresARunOfAnExistingJob() throws Exception {
         FreeStyleProject job = j.createFreeStyleProject("still-here");
         FreeStyleBuild run = j.buildAndAssertSuccess(job);
         assertEquals(1, rows("still-here"));
 
         BuildRecorder.record(run);
-        assertEquals("re-recording a live job's run is an upsert", 1, rows("still-here"));
+        assertEquals(1, rows("still-here"), "re-recording a live job's run is an upsert");
     }
 
     @Test
-    public void recordSkipsARunWhoseJobWasDeleted() throws Exception {
+    void recordSkipsARunWhoseJobWasDeleted() throws Exception {
         FreeStyleProject job = j.createFreeStyleProject("gone");
         FreeStyleBuild run = j.buildAndAssertSuccess(job);
         job.delete();
-        assertEquals("detached at delete time", 0, rows("gone"));
+        assertEquals(0, rows("gone"), "detached at delete time");
 
         BuildRecorder.record(run);
-        assertEquals("a run of a deleted job must not come back under its name", 0, rows("gone"));
+        assertEquals(0, rows("gone"), "a run of a deleted job must not come back under its name");
     }
 
     @Test
-    public void recordSkipsARunWhoseJobNameNowBelongsToAnotherJob() throws Exception {
+    void recordSkipsARunWhoseJobNameNowBelongsToAnotherJob() throws Exception {
         FreeStyleProject old = j.createFreeStyleProject("taken");
         FreeStyleBuild oldRun = j.buildAndAssertSuccess(old);
         old.delete();
         j.createFreeStyleProject("taken");
 
         BuildRecorder.record(oldRun);
-        assertEquals("nothing may be written under the new job's name", 0, rows("taken"));
+        assertEquals(0, rows("taken"), "nothing may be written under the new job's name");
     }
 
     private int rows(String name) {

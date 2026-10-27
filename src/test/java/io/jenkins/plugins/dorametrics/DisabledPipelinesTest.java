@@ -5,25 +5,25 @@ import io.jenkins.plugins.dorametrics.store.MetricsExporter;
 import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.jenkinsci.plugins.workflow.job.WorkflowJobProperty;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 import java.util.Set;
+import static org.junit.jupiter.api.Assertions.*;
 
-import static org.junit.Assert.*;
+@WithJenkins
+class DisabledPipelinesTest {
 
-public class DisabledPipelinesTest {
-
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
     private MetricsStore store;
     private DoraGlobalConfiguration config;
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeEach
+    void setUp(JenkinsRule rule) throws Exception {
+        j = rule;
         MetricsStore.setInstance(null);
         store = MetricsStore.getInstance();
         config = DoraGlobalConfiguration.get();
@@ -41,19 +41,19 @@ public class DisabledPipelinesTest {
     }
 
     @Test
-    public void nothingExcludedWhileOptionIsOff() {
+    void nothingExcludedWhileOptionIsOff() {
         assertTrue(DisabledPipelines.names(config, store).isEmpty());
     }
 
     @Test
-    public void onlyCurrentlyDisabledJobsExcluded() {
+    void onlyCurrentlyDisabledJobsExcluded() {
         config.setIgnoreDisabledPipelines(true);
         Set<String> names = DisabledPipelines.names(config, store);
         assertEquals(Set.of("disabled"), names);
     }
 
     @Test
-    public void disabledPipelineJobIsExcludedToo() throws Exception {
+    void disabledPipelineJobIsExcludedToo() throws Exception {
         WorkflowJob pipeline = j.createProject(WorkflowJob.class, "pipeline-disabled");
         pipeline.setDisabled(true);
         store.insertBuild("pipeline-disabled", 1, System.currentTimeMillis(), 1000, "SUCCESS", "SCM", "main");
@@ -63,7 +63,7 @@ public class DisabledPipelinesTest {
     }
 
     @Test
-    public void deadBranchJobIsExcludedToo() throws Exception {
+    void deadBranchJobIsExcludedToo() throws Exception {
         // A multibranch branch or PR job whose branch went away is not disabled by flag: the branch
         // plugin vetoes it through a WorkflowJobProperty, the same way BranchJobProperty does.
         WorkflowJob dead = j.createProject(WorkflowJob.class, "dead-branch");
@@ -82,20 +82,20 @@ public class DisabledPipelinesTest {
     }
 
     @Test
-    public void reenablingBringsTheJobBack() throws Exception {
+    void reenablingBringsTheJobBack() throws Exception {
         config.setIgnoreDisabledPipelines(true);
         j.jenkins.getItemByFullName("disabled", FreeStyleProject.class).enable();
         assertTrue(DisabledPipelines.names(config, store).isEmpty());
     }
 
     @Test
-    public void nullConfigOrStoreExcludesNothing() {
+    void nullConfigOrStoreExcludesNothing() {
         assertTrue(DisabledPipelines.names(null, store).isEmpty());
         assertTrue(DisabledPipelines.names(config, null).isEmpty());
     }
 
     @Test
-    public void exportLeavesDisabledJobsOut() {
+    void exportLeavesDisabledJobsOut() {
         String withEverything = MetricsExporter.exportFullDump(1);
         assertTrue(withEverything.contains("\"disabled\""));
 

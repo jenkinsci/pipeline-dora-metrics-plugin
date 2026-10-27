@@ -11,7 +11,7 @@ import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 /**
  * The API answers for any date range, buckets days in the viewer's time zone, gives every day
@@ -96,8 +96,8 @@ class ApiRangeTest {
     void aDayWithoutDeploymentsHasNoRates() throws Exception {
         JSONObject day = get("dora-api/trends?from=2026-03-10&to=2026-03-10&tz=UTC").getJSONArray("trends").getJSONObject(0);
         assertEquals(0, day.getInt("deployments"));
-        assertTrue(day.get("change_failure_rate") instanceof net.sf.json.JSONNull);
-        assertTrue(day.get("lead_time_ms") instanceof net.sf.json.JSONNull);
-        assertTrue(day.get("restore_time_ms") instanceof net.sf.json.JSONNull);
+        assertInstanceOf(net.sf.json.JSONNull.class, day.get("change_failure_rate"));
+        assertInstanceOf(net.sf.json.JSONNull.class, day.get("lead_time_ms"));
+        assertInstanceOf(net.sf.json.JSONNull.class, day.get("restore_time_ms"));
     }
 }

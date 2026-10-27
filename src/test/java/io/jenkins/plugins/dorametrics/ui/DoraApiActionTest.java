@@ -1,51 +1,56 @@
 package io.jenkins.plugins.dorametrics.ui;
 
 import hudson.model.RootAction;
-import io.jenkins.plugins.dorametrics.store.MetricsStore;
 import jenkins.model.Jenkins;
 import net.sf.json.JSONObject;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
-public class DoraApiActionTest {
+@WithJenkins
+class DoraApiActionTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
-    @Test
-    public void extensionRegistered() {
-        DoraApiAction action = Jenkins.get().getExtensionList(RootAction.class)
-                .get(DoraApiAction.class);
-        assertNotNull("DoraApiAction should be registered", action);
-        assertEquals("dora-api", action.getUrlName());
-        assertNull("API action should have no icon", action.getIconFileName());
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
     }
 
     @Test
-    public void escapeCsvNull() {
+    void extensionRegistered() {
+        DoraApiAction action = Jenkins.get().getExtensionList(RootAction.class)
+                .get(DoraApiAction.class);
+        assertNotNull(action, "DoraApiAction should be registered");
+        assertEquals("dora-api", action.getUrlName());
+        assertNull(action.getIconFileName(), "API action should have no icon");
+    }
+
+    @Test
+    void escapeCsvNull() {
         assertEquals("", DoraApiAction.escapeCsv(null));
     }
 
     @Test
-    public void escapeCsvSimple() {
+    void escapeCsvSimple() {
         assertEquals("simple", DoraApiAction.escapeCsv("simple"));
     }
 
     @Test
-    public void escapeCsvComma() {
+    void escapeCsvComma() {
         assertEquals("\"has,comma\"", DoraApiAction.escapeCsv("has,comma"));
     }
 
     @Test
-    public void escapeCsvQuotes() {
+    void escapeCsvQuotes() {
         assertEquals("\"has\"\"quote\"", DoraApiAction.escapeCsv("has\"quote"));
     }
 
     @Test
-    public void escapeCsvFormulaInjection() {
+    void escapeCsvFormulaInjection() {
         assertEquals("'=formula", DoraApiAction.escapeCsv("=formula"));
         assertEquals("'+dangerous", DoraApiAction.escapeCsv("+dangerous"));
         assertEquals("'-negative", DoraApiAction.escapeCsv("-negative"));
@@ -53,12 +58,12 @@ public class DoraApiActionTest {
     }
 
     @Test
-    public void escapeCsvNewlines() {
+    void escapeCsvNewlines() {
         assertEquals("\"has\nnewline\"", DoraApiAction.escapeCsv("has\nnewline"));
     }
 
     @Test
-    public void metricToJsonStructure() {
+    void metricToJsonStructure() {
         var metric = new io.jenkins.plugins.dorametrics.dora.DoraCalculator.DoraMetric(
                 "Test", "42", io.jenkins.plugins.dorametrics.dora.DoraCalculator.DoraBand.ELITE, 42.0);
         JSONObject json = DoraApiAction.metricToJson(metric);
@@ -70,13 +75,13 @@ public class DoraApiActionTest {
     }
 
     @Test
-    public void rankingsToJsonEmpty() {
+    void rankingsToJsonEmpty() {
         var arr = DoraApiAction.rankingsToJson(java.util.Collections.emptyList());
         assertEquals(0, arr.size());
     }
 
     @Test
-    public void rankingsToJsonWithData() {
+    void rankingsToJsonWithData() {
         var list = java.util.List.of(
                 new io.jenkins.plugins.dorametrics.rankings.PipelineRanker.RankedPipeline("job-a", 10.0, "10s", 5));
         var arr = DoraApiAction.rankingsToJson(list);
